@@ -1,0 +1,18 @@
+# Colab already ships most of these; the notebooks pip-install what's missing inline.
+# This file is for local/binder use and to document the environment.
+numpy>=1.24
+scipy>=1.10
+scikit-learn>=1.3
+matplotlib>=3.7
+h5py
+hdf5storage
+tqdm
+easydict
+ipywidgets
+moviepy
+imageio==2.4.1
+umap-learn>=0.5
+# slow-modes track (05) only:
+pygpcca>=1.0.4
+powerlaw>=1.5
+# motionmapperpy and slowmode are cloned from GitHub inside the notebooks, not pip-installed.
