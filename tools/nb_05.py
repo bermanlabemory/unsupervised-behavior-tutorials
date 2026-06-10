@@ -35,11 +35,12 @@ cells.append(code(r"""
 import os
 if not os.path.exists("motionmapperpy"):
     !git clone -q https://github.com/bermanlabemory/motionmapperpy
-# Install deps and import motionmapperpy straight from the clone. This avoids "setup.py
-# install" -- which can fail silently and leave an importable-but-EMPTY "motionmapperpy"
-# namespace package (mmpy with no attributes) -- and needs no runtime restart. moviepy<2
-# because the released package imports the moviepy 1.x "editor" API.
-!pip install -q "moviepy<2" imageio==2.4.1
+# Import motionmapperpy straight from the clone -- avoids the "setup.py install" empty-namespace
+# trap (no restart needed). moviepy<2 because the package + notebook use the moviepy 1.x "editor"
+# API; FFMPEG_BINARY points moviepy at Colab's ffmpeg so it never tries the broken auto-download.
+import shutil
+os.environ["FFMPEG_BINARY"] = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
+!pip install -q "moviepy<2"
 import sys
 sys.path.insert(0, os.path.abspath("motionmapperpy"))
 for _m in [k for k in list(sys.modules) if k.startswith("motionmapperpy")]:
