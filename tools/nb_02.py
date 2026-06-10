@@ -40,13 +40,20 @@ cells.append(code(r"""
 import os
 if not os.path.exists("motionmapperpy"):
     !git clone -q https://github.com/bermanlabemory/motionmapperpy
-# Import motionmapperpy straight from the clone -- avoids the "setup.py install" empty-namespace
-# trap (no restart needed). moviepy<2 because the package + notebook use the moviepy 1.x "editor"
-# API; FFMPEG_BINARY points moviepy at Colab's ffmpeg so it never tries the broken auto-download.
-import shutil
-os.environ["FFMPEG_BINARY"] = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
-!pip install -q "moviepy<2"
-import sys
+# This notebook uses matplotlib (not moviepy) for visuals. The released package still imports
+# moviepy at load time, so we stub it out -- sidestepping the whole moviepy/ffmpeg mess on Colab.
+import sys, types
+def _stub(name, **attrs):
+    m = sys.modules.get(name) or types.ModuleType(name)
+    for k, v in attrs.items():
+        setattr(m, k, v)
+    sys.modules[name] = m
+    return m
+_stub("moviepy"); _stub("moviepy.editor", VideoClip=object, VideoFileClip=object)
+_stub("moviepy.video"); _stub("moviepy.video.io")
+_stub("moviepy.video.io.bindings", mplfig_to_npimage=lambda *a, **k: None)
+
+# Import straight from the clone -- avoids the "setup.py install" empty-namespace trap; no restart.
 sys.path.insert(0, os.path.abspath("motionmapperpy"))
 for _m in [k for k in list(sys.modules) if k.startswith("motionmapperpy")]:
     del sys.modules[_m]

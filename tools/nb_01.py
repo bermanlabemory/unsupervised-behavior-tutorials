@@ -42,20 +42,28 @@ movies of a single fly walking in a shallow dish, with **32 body parts tracked**
 DeepLabCut output looks the same).
 """))
 cells.append(code(r"""
-import os
+import os, sys, types
 if not os.path.exists("motionmapperpy"):
     !git clone -q https://github.com/bermanlabemory/motionmapperpy
-# Import motionmapperpy straight from the clone -- avoids the "setup.py install" empty-namespace
-# trap (no restart needed). moviepy<2 because the package + notebook use the moviepy 1.x "editor"
-# API; FFMPEG_BINARY points moviepy at Colab's ffmpeg so it never tries the broken auto-download.
-import shutil
-os.environ["FFMPEG_BINARY"] = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
-!pip install -q "moviepy<2"
-import sys
+!pip install -q hdf5storage easydict umap-learn
+
+# We read video with OpenCV and animate with matplotlib, so this notebook needs no moviepy at all.
+# The released package still imports moviepy at load time, so we stub it out -- which sidesteps the
+# whole moviepy/ffmpeg mess on modern Colab.
+def _stub(name, **attrs):
+    m = sys.modules.get(name) or types.ModuleType(name)
+    for k, v in attrs.items():
+        setattr(m, k, v)
+    sys.modules[name] = m
+    return m
+_stub("moviepy"); _stub("moviepy.editor", VideoClip=object, VideoFileClip=object)
+_stub("moviepy.video"); _stub("moviepy.video.io")
+_stub("moviepy.video.io.bindings", mplfig_to_npimage=lambda *a, **k: None)
+
+# Import straight from the clone -- avoids the "setup.py install" empty-namespace trap; no restart.
 sys.path.insert(0, os.path.abspath("motionmapperpy"))
 for _m in [k for k in list(sys.modules) if k.startswith("motionmapperpy")]:
     del sys.modules[_m]
-!pip install -q hdf5storage easydict umap-learn 2>/dev/null
 print("ready")
 """))
 cells.append(md(r"""
@@ -71,16 +79,30 @@ import glob, os, pickle, copy, time
 import numpy as np
 import pandas as pd
 import hdf5storage
+import cv2                                    # reads video frames; ships with Colab, no ffmpeg hassle
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from IPython.display import HTML
 from scipy.ndimage import median_filter
 from sklearn.decomposition import PCA
-from moviepy.editor import VideoFileClip, VideoClip
-from moviepy.video.io.bindings import mplfig_to_npimage
 from matplotlib import rc; rc("animation", html="jshtml")
 
 import motionmapperpy as mmpy
 from motionmapperpy import demoutils
 %matplotlib inline
+
+def read_frames(path, start, n):
+    # read n consecutive RGB video frames starting at frame index `start`
+    cap = cv2.VideoCapture(path); cap.set(cv2.CAP_PROP_POS_FRAMES, start)
+    out = []
+    for _ in range(n):
+        ok, fr = cap.read()
+        if not ok:
+            break
+        out.append(cv2.cvtColor(fr, cv2.COLOR_BGR2RGB))
+    cap.release()
+    return out
+
 print("imports ok")
 """))
 
@@ -92,7 +114,7 @@ movies and the tracked positions and watch them together.
 """))
 cells.append(code(r"""
 datasetnames = ["fly_leap_test", "fly_leap_test_2"]
-clips = [VideoFileClip("motionmapperpy/data/fly/%s.mp4" % d) for d in datasetnames]
+moviepaths = ["motionmapperpy/data/fly/%s.mp4" % d for d in datasetnames]
 
 # The tracking is stored as a pandas table with x, y, and a confidence ("likelihood") column
 # per body part. Drop the confidence columns and keep x,y -> shape (frames, 32 parts, 2).
@@ -109,20 +131,20 @@ cells.append(code(r"""
 # 'connections' just says which body parts to draw lines between, so the fly looks like a fly.
 connections = [np.arange(6, 10), np.arange(10, 14), np.arange(14, 18), np.arange(18, 22),
                np.arange(22, 26), np.arange(26, 30), [2, 0, 1], [0, 3, 4, 5], [31, 3, 30]]
-h5ind, tstart = 0, 7000
+h5ind, tstart, nframes = 0, 7000, 120
+frames = read_frames(moviepaths[h5ind], tstart, nframes)
 fig, ax = plt.subplots(figsize=(6, 6))
 
-def animate(t):
-    f = int(t * clips[h5ind].fps) + tstart
+def update(i):
     ax.clear()
-    ax.imshow(clips[h5ind].get_frame(f / clips[h5ind].fps), cmap="Greys", origin="lower")
+    ax.imshow(frames[i], origin="lower")
     for c in connections:
-        ax.plot(h5s[h5ind][f, c, 0], h5s[h5ind][f, c, 1], "-", color="firebrick", lw=1)
+        ax.plot(h5s[h5ind][tstart + i, c, 0], h5s[h5ind][tstart + i, c, 1], "-", color="firebrick", lw=1)
     ax.axis("off"); ax.set_aspect("equal")
-    return mplfig_to_npimage(fig)
 
-anim = VideoClip(animate, duration=6); plt.close()
-anim.ipython_display(fps=20, loop=True, autoplay=True)
+anim = FuncAnimation(fig, update, frames=len(frames), interval=50)
+plt.close()
+HTML(anim.to_jshtml())
 """))
 
 # ---------------------------------------------------------------- features
@@ -348,50 +370,57 @@ cells.append(md("The dot is where the fly is *in behavior space* as the movie pl
 cells.append(code(r"""
 zValues = wfile["zValues"]; m = np.abs(zValues).max()
 _, xx, dens = mmpy.findPointDensity(zValues, 1.0, 511, [-m - 10, m + 10])
+h5ind, tstart, nframes = 0, 1500, 120
+frames = read_frames(moviepaths[h5ind], tstart, nframes)
+
 fig, ax = plt.subplots(1, 2, figsize=(11, 5.5))
 ax[0].imshow(dens, extent=(xx[0], xx[-1], xx[0], xx[-1]), cmap=mmpy.gencmap(), origin="lower")
 ax[0].axis("off"); ax[0].set_title("behavior space")
 dot = ax[0].scatter([], [], s=300, color="k")
-h5ind, tstart = 0, 1500
 
-def animate(t):
-    f = int(t * clips[h5ind].fps) + tstart
-    ax[1].clear(); ax[1].imshow(clips[h5ind].get_frame(f / clips[h5ind].fps), cmap="Greys", origin="lower")
+def update(i):
+    f = tstart + i
+    ax[1].clear(); ax[1].imshow(frames[i], origin="lower")
     for c in connections:
         ax[1].plot(h5s[h5ind][f, c, 0], h5s[h5ind][f, c, 1], "k-", lw=1)
-    ax[1].axis("off"); dot.set_offsets(zValues[f]); return mplfig_to_npimage(fig)
+    ax[1].axis("off"); dot.set_offsets(zValues[f])
 
-anim = VideoClip(animate, duration=4); plt.close()
-anim.ipython_display(fps=15, loop=True, autoplay=True)
+anim = FuncAnimation(fig, update, frames=len(frames), interval=66)
+plt.close()
+HTML(anim.to_jshtml())
 """))
 
 # ---------------------------------------------------------------- region videos
-cells.append(md("# 9.&nbsp; What *is* each region? Make exemplar movies"))
+cells.append(md("# 9.&nbsp; What *is* each region? Watch example bouts"))
 cells.append(md(r"""
-A region is only meaningful once you've *watched* it. This grabs example clips from a few regions
-so you can name them ("region 5 = grooming", ...). ~1 min per region.
+A region is only meaningful once you've *watched* it. The helper below finds the longest bout of a
+chosen region and plays it back (video + skeleton) right here &mdash; so you can name it
+("region 5 = grooming", ...).
 """))
 cells.append(code(r"""
+def show_region(region, dataset=0, max_len=150):
+    # find contiguous bouts of `region` in one recording, play back the longest one
+    wr = np.split(wfile["watershedRegions"].flatten(),
+                  np.cumsum(wfile["zValLens"][0].flatten())[:-1])[dataset]
+    on = (wr == region).astype(int)
+    starts = np.where(np.diff(np.r_[0, on]) == 1)[0]
+    ends = np.where(np.diff(np.r_[on, 0]) == -1)[0] + 1
+    if len(starts) == 0:
+        print("region %d not found in %s" % (region, datasetnames[dataset])); return None
+    k = (ends - starts).argmax()
+    s, e = int(starts[k]), int(min(ends[k], starts[k] + max_len))
+    frames = read_frames(moviepaths[dataset], s, e - s)
+    fig, ax = plt.subplots(figsize=(5, 5))
+    def update(i):
+        ax.clear(); ax.imshow(frames[i], origin="lower")
+        for c in connections:
+            ax.plot(h5s[dataset][s + i, c, 0], h5s[dataset][s + i, c, 1], "-", color="firebrick", lw=1)
+        ax.axis("off"); ax.set_title("region %d  (frame %d)" % (region, s + i))
+    anim = FuncAnimation(fig, update, frames=len(frames), interval=50); plt.close()
+    return HTML(anim.to_jshtml())
+
 wmax = int(wfile["watershedRegions"].max())
-for r in [1, wmax // 2, wmax]:               # 🔧 your turn: try other region numbers
-    try:
-        demoutils.makeregionvideo_flies(r, parameters, wfile, clips, subs=2,
-                                        minLength=10, maxLength=100)
-    except Exception as e:
-        print("region %d:" % r, e)
-print("done — videos are in %s/%s/" % (projectPath, parameters.method))
-"""))
-cells.append(code(r"""
-# Play one of them:
-from IPython.display import HTML
-from base64 import b64encode
-region = wmax // 2
-vids = glob.glob("%s/%s/**/regions_*%d*.mp4" % (projectPath, parameters.method, region), recursive=True)
-if vids:
-    data = b64encode(open(vids[0], "rb").read()).decode()
-    display(HTML('<video width=400 controls loop autoplay><source src="data:video/mp4;base64,%s"></video>' % data))
-else:
-    print("no video found for region", region, "- try another region number above")
+show_region(wmax // 2)        # 🔧 your turn: try other region numbers, 1 .. wmax
 """))
 
 # ---------------------------------------------------------------- exercises
