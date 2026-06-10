@@ -7,7 +7,7 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from nb_builder import md, code, badge, write_nb
 
-REPO = "bermanlabemory/unsupervised_behavior_tutorial/blob/main"
+REPO = "bermanlabemory/unsupervised-behavior-tutorials/blob/main"
 cells = []
 
 cells.append(badge("%s/02_social_behavior_rats.ipynb" % REPO))
