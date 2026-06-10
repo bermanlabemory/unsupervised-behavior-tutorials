@@ -161,11 +161,9 @@ def egocenter(P):                       # P:(T,K,3) -> egocentric (tail-base at 
     Q[:, :, 0], Q[:, :, 1] = x*c[:, None]-y*s[:, None], x*s[:, None]+y*c[:, None]
     return Q.reshape(len(P), -1)        # (T, 24)
 
-def wavelet_pcs(stream, fps, n_pc=6, npca=None):
+def wavelet_amps(stream, fps):                       # log wavelet amplitudes for one animal stream
     w, _ = mmpy.findWavelets(stream, stream.shape[1], 5, 20, fps, 10.0, 0.5, -1, -1)
-    w = np.log(w + 1e-3)
-    pca = npca or PCA(n_pc).fit(w)
-    return pca.transform(w), pca
+    return np.log(w + 1e-3)
 
 # collect each animal stream, tagged lone/social and by group
 streams, tags = [], []
@@ -173,7 +171,9 @@ for s in sessions:
     for who in ["A", "B"]:
         if s[who] is None: continue
         streams.append(egocenter(s[who])); tags.append((s["group"], s["kind"]))
-W = [wavelet_pcs(st, 30)[0] for st in streams]
+amps = [wavelet_amps(st, 30) for st in streams]
+PCA_W = PCA(6).fit(np.vstack(amps))                  # ONE shared feature basis for every map below
+W = [PCA_W.transform(a) for a in amps]
 allW = np.vstack(W)
 sub = rng.choice(len(allW), min(8000, len(allW)), replace=False)
 ireducer = umap.UMAP(n_neighbors=30, min_dist=0.1, random_state=0).fit(allW[sub])
@@ -232,8 +232,8 @@ so on.
 """))
 cells.append(code(r"""
 def dyadic_features(s):
-    wA = wavelet_pcs(egocenter(s["A"]), s["fps"])[0]
-    wB = wavelet_pcs(egocenter(s["B"]), s["fps"])[0]
+    wA = PCA_W.transform(wavelet_amps(egocenter(s["A"]), s["fps"]))
+    wB = PCA_W.transform(wavelet_amps(egocenter(s["B"]), s["fps"]))
     d, rel = social_features(s["A"], s["B"])
     soc = np.c_[np.exp(-d / 10), np.cos(rel), np.sin(rel)] * 3        # scaled social channels
     return np.c_[wA, wB, soc]
@@ -273,7 +273,7 @@ chance &mdash; the **partial mutual information** structure of Klibaite 2025 (Fi
 cells.append(code(r"""
 NI = 6
 ikm = KMeans(NI, n_init=10, random_state=0).fit(allW[sub])
-def labels_of(P): return ikm.predict(wavelet_pcs(egocenter(P), 30)[0])
+def labels_of(P): return ikm.predict(PCA_W.transform(wavelet_amps(egocenter(P), 30)))
 
 co = np.zeros((NI, NI))
 for s in social_sessions:

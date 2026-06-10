@@ -214,6 +214,7 @@ parameters.minF        = 1          # slowest movement frequency to track (Hz)
 parameters.maxF        = 50         # fastest (here = Nyquist = 100/2)
 parameters.numPeriods  = 25         # number of frequency channels between minF and maxF
 parameters.useGPU      = -1         # set to 0 if you enabled a GPU runtime
+parameters.numProcessors = -1       # use all available CPU cores for the wavelet transform
 parameters.training_numPoints = 3000
 parameters.trainingSetSize    = 5000
 print("parameters set")

@@ -131,6 +131,7 @@ parameters.minF        = 0.5            # TODO: slowest movement frequency you c
 parameters.maxF        = min(FPS / 2, 25)   # TODO: fastest; must be <= FPS/2 (Nyquist)
 parameters.numPeriods  = 25
 parameters.useGPU      = -1
+parameters.numProcessors = -1           # use all available CPU cores for the wavelet transform
 mmpy.createProjectDirectory(parameters.projectPath)
 for i, projs in enumerate(projs_list):
     hdf5storage.savemat("%s/Projections/rec_%d_pcaModes.mat" % (parameters.projectPath, i),

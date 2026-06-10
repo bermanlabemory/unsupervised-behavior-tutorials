@@ -76,7 +76,7 @@ w, freqs = mmpy.findWavelets(x[:, None], 1, 5, 25, fs, 12.0, 0.5, -1, -1)   # (T
 
 fig, ax = plt.subplots(2, 1, figsize=(13, 5), sharex=True)
 ax[0].imshow(w[:3000].T, aspect="auto", origin="lower", cmap="PuRd",
-             extent=(0, 3000, freqs[-1], freqs[0]))
+             extent=(0, 3000, freqs[0], freqs[-1]))
 ax[0].set_ylabel("frequency (Hz)"); ax[0].set_title("wavelet spectrogram — the band visibly switches")
 band = w[:, freqs > 4].mean(1) - w[:, freqs < 4].mean(1)     # high-band minus low-band power
 ax[1].plot(band / np.abs(band).max(), color="firebrick", label="wavelet band power")
