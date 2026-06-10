@@ -36,7 +36,7 @@ print("GPU:", gpu.stdout.strip() if gpu.returncode == 0 else "none (that's fine!
 cells.append(md("## 0.2&nbsp; Install the few packages Colab doesn't ship"))
 cells.append(code(r"""
 # Quietly install what's missing. This takes ~30-60 s.
-!pip install -q hdf5storage easydict umap-learn imageio==2.4.1 2>/dev/null
+!pip install -q hdf5storage easydict umap-learn 2>/dev/null
 print("packages installed")
 """))
 
@@ -48,19 +48,29 @@ We download it by cloning its GitHub repository (this also brings along the smal
 datasets we'll use).
 """))
 cells.append(code(r"""
-import os
+import os, sys, types
 if not os.path.exists("motionmapperpy"):
     !git clone -q https://github.com/bermanlabemory/motionmapperpy
-# Install deps and import motionmapperpy straight from the clone. This avoids "setup.py
-# install" -- which can fail silently and leave an importable-but-EMPTY "motionmapperpy"
-# namespace package (mmpy with no attributes) -- and needs no runtime restart. moviepy<2
-# because the released package imports the moviepy 1.x "editor" API.
-!pip install -q "moviepy<2" imageio==2.4.1
-import sys
+!pip install -q hdf5storage easydict umap-learn
+
+# This check doesn't need video. The released package imports moviepy at load time, and Colab's
+# moviepy/ffmpeg stack tries to download an ancient ffmpeg from a dead URL -- so we stub moviepy
+# out. (The notebooks that actually render videos install a working moviepy instead.)
+def _stub(name, **attrs):
+    m = sys.modules.get(name) or types.ModuleType(name)
+    for k, v in attrs.items():
+        setattr(m, k, v)
+    sys.modules[name] = m
+    return m
+_stub("moviepy"); _stub("moviepy.editor", VideoClip=object, VideoFileClip=object)
+_stub("moviepy.video"); _stub("moviepy.video.io")
+_stub("moviepy.video.io.bindings", mplfig_to_npimage=lambda *a, **k: None)
+
+# Import straight from the clone -- avoids the "setup.py install" empty-namespace trap; no restart.
 sys.path.insert(0, os.path.abspath("motionmapperpy"))
 for _m in [k for k in list(sys.modules) if k.startswith("motionmapperpy")]:
     del sys.modules[_m]
-print("motionmapperpy installed")
+print("motionmapperpy ready")
 """))
 
 cells.append(md(r"""
