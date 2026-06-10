@@ -51,16 +51,22 @@ cells.append(code(r"""
 import os
 if not os.path.exists("motionmapperpy"):
     !git clone -q https://github.com/bermanlabemory/motionmapperpy
-%cd motionmapperpy
-!python setup.py install -q 2>/dev/null
-%cd ..
+# Install deps and import motionmapperpy straight from the clone. This avoids "setup.py
+# install" -- which can fail silently and leave an importable-but-EMPTY "motionmapperpy"
+# namespace package (mmpy with no attributes) -- and needs no runtime restart. moviepy<2
+# because the released package imports the moviepy 1.x "editor" API.
+!pip install -q "moviepy<2" imageio==2.4.1
+import sys
+sys.path.insert(0, os.path.abspath("motionmapperpy"))
+for _m in [k for k in list(sys.modules) if k.startswith("motionmapperpy")]:
+    del sys.modules[_m]
 print("motionmapperpy installed")
 """))
 
 cells.append(md(r"""
-> **One-time step:** if the import in the next cell fails, do `Runtime → Restart session`
-> and then run the rest of the notebook again. (Installing a package sometimes needs a restart
-> before Python will see it. Restarting does **not** delete your files.)
+> **No restart needed.** The setup cell imports motionmapperpy straight from the cloned folder. If
+> `import motionmapperpy` ever fails, just re-run the setup cell above — do **not** use *Restart
+> session*, which would undo the `sys.path` line. Your files are kept either way.
 """))
 
 cells.append(md("## 0.4&nbsp; The smoke test"))
