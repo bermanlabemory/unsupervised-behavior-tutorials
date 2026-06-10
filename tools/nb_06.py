@@ -162,8 +162,8 @@ with h5py.File(tf + "training_embedding.mat", "r") as f: tE = f["trainingEmbeddi
 zstr = "uVals" if parameters.method == "UMAP" else "zVals"
 for pf in glob.glob(parameters.projectPath + "/Projections/*_pcaModes.mat"):
     z, _ = mmpy.findEmbeddings(hdf5storage.loadmat(pf)["projections"], tD, tE, parameters)
-    hdf5storage.write({"zValues": z}, "/", pf[:-4] + "_%s.mat" % zstr,
-                      matlab_compatible=True, truncate_existing=True)
+    hdf5storage.write(data={"zValues": z}, path="/", filename=pf[:-4] + "_%s.mat" % zstr,
+                      store_python_metadata=False, matlab_compatible=True, truncate_existing=True)
 print("map built in %d s" % (time.time() - t0))
 """))
 cells.append(code(r"""

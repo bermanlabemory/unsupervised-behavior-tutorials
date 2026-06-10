@@ -323,8 +323,8 @@ for pf in glob.glob(projectPath + "/Projections/*_pcaModes.mat"):
         continue
     projections = hdf5storage.loadmat(pf)["projections"]
     z, _ = mmpy.findEmbeddings(projections, trainingSetData, trainingEmbedding, parameters)
-    hdf5storage.write({"zValues": z}, "/", pf[:-4] + "_%s.mat" % zstr,
-                      matlab_compatible=True, truncate_existing=True)
+    hdf5storage.write(data={"zValues": z}, path="/", filename=pf[:-4] + "_%s.mat" % zstr,
+                      store_python_metadata=False, matlab_compatible=True, truncate_existing=True)
 print("all data embedded")
 """))
 
