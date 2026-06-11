@@ -63,18 +63,22 @@ Each fly's behavior is an integer time series: which of the 117 behaviors it was
 step. We also load the 2-D **region map** (so we can draw results on the behavior space) and the
 behavioral **density**.
 
-> **Instructors:** host `transition_data.mat` and set `USE_SYNTHETIC_DATA = False` to use the
-> real 59-fly dataset. Until then this generates stand-in data with the same structure.
+This loads the **real 59-fly dataset** (`data/transition_data.mat`, 117 behaviors) straight from
+this tutorial's GitHub repo. If the download fails (e.g. the repo isn't public yet), it falls back
+to a stand-in generator with the same structure &mdash; set `USE_SYNTHETIC_DATA = True` to force that.
 """))
 cells.append(code(r"""
-USE_SYNTHETIC_DATA = True
-DATA_URL = "https://PLACEHOLDER-HOST/transition_data.mat"   # TODO: real link
+USE_SYNTHETIC_DATA = False      # set True to force the stand-in generator below
+# The real 59-fly transition data ships in this tutorial's repo (data/transition_data.mat).
+DATA_URL = "https://raw.githubusercontent.com/bermanlabemory/unsupervised-behavior-tutorials/main/data/transition_data.mat"
 
 def load_real():
-    import hdf5storage
+    from scipy.io import loadmat
     if not os.path.exists("transition_data.mat"):
         !wget -q "$DATA_URL" -O transition_data.mat
-    d = hdf5storage.loadmat("transition_data.mat")
+    if not os.path.exists("transition_data.mat") or os.path.getsize("transition_data.mat") < 100000:
+        raise RuntimeError("download failed -- is the repo public yet?")
+    d = loadmat("transition_data.mat")           # v7 .mat -> scipy reads it directly
     states_list = [np.asarray(s).flatten().astype(int) for s in d["transition_states"].flatten()]
     return states_list, d["regionMap"], d["density"], d["xx"].flatten(), d["peakPoints"]
 
@@ -112,12 +116,16 @@ def make_synthetic(n_flies=12, T=4000, n_super=6, per_super=12, dwell=150, seed=
     regionMap[density < 0.05] = 0
     return states_list, regionMap, density, gx, pos
 
+if not USE_SYNTHETIC_DATA:
+    try:
+        states_list, regionMap, density, xx, peakPoints = load_real()
+        print("REAL data: %d flies, %d behaviors" % (len(states_list), int(regionMap.max())))
+    except Exception as e:
+        print("Could not load the real data (%s) -- falling back to synthetic." % e)
+        USE_SYNTHETIC_DATA = True
 if USE_SYNTHETIC_DATA:
     states_list, regionMap, density, xx, peakPoints = make_synthetic()
     print("SYNTHETIC data:", len(states_list), "flies,", int(max(s.max() for s in states_list)) + 1, "states")
-else:
-    states_list, regionMap, density, xx, peakPoints = load_real()
-    print("REAL data:", len(states_list), "flies")
 """))
 cells.append(md("The region map &mdash; note that nearby region numbers tend to be similar behaviors:"))
 cells.append(code(r"""
