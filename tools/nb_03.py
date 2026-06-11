@@ -145,7 +145,6 @@ $\tau$ later, given behavior $j$ now. Start with $\tau=1$. We pool all flies. (W
 """))
 cells.append(code(r"""
 states = np.concatenate([demoutils.getTransitions(s) for s in states_list])
-nstate = int(states.max()) + 1
 T1 = demoutils.makeTransitionMatrix(states, 1)
 
 fig, ax = plt.subplots(figsize=(6, 5))
@@ -381,14 +380,15 @@ def partition_image(f, state_vals):
     return img
 
 levels = [j for j in dib["chosen"] if 2 <= dib["ncl"][j] <= 7]
-fig, axes = plt.subplots(1, len(levels), figsize=(3.1 * len(levels), 3.5))
+fig, axes = plt.subplots(1, len(levels), figsize=(3.1 * len(levels), 3.7))
 for ax, j in zip(np.atleast_1d(axes), levels):
     ax.imshow(partition_image(dib["clus"][j], state_vals), cmap="tab10",
               origin="lower", interpolation="nearest")
     ax.axis("off")
     ax.set_title("%d clusters\nH[T]=%.2f  I[Y;T]=%.2f"
                  % (dib["ncl"][j], dib["HT"][j], dib["IYT"][j]), fontsize=10)
-plt.suptitle("levels of the behavioral hierarchy (DIB partitions)"); plt.tight_layout(); plt.show()
+fig.suptitle("levels of the behavioral hierarchy (DIB partitions)", fontsize=12)
+fig.tight_layout(rect=[0, 0, 1, 0.85]); plt.show()
 """))
 cells.append(md(r"""
 Two things to notice. The clusters are **spatially contiguous** &mdash; each is a connected
@@ -407,9 +407,10 @@ Those slow eigenvalues you found in §5 are exactly the spectrum of a *transfer 
 a principled, modern way to pull the **slow collective modes** straight out of them &mdash; that's
 notebook **`05_slow_modes.ipynb`** (and it's what Greg Stephens will go deeper on tomorrow).
 
-🔧 **Your turn:** re-run `run_dib(..., lag=50)` to compress for the *distant* future. Do you get
-*coarser* groups &mdash; fewer cheap splits on the front &mdash; than predicting the near future?
-Then try widening the search with `max_clusters=40` or `n_restarts=2000` for a cleaner front.
+🔧 **Your turn:** re-run with `dib = run_dib(trans_list, state_vals, lag=50)` to compress for the
+*distant* future, then redraw the two plots above. Do you get *coarser* groups &mdash; fewer cheap
+splits on the front &mdash; than predicting the near future? Then try widening the search with
+`max_clusters=40` or `n_restarts=2000` for a cleaner front.
 """))
 
 write_nb(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

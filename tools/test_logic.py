@@ -4,6 +4,7 @@ generators + analysis math to catch shape/logic bugs. Run: python tools/test_log
 import sys, traceback
 import numpy as np
 from sklearn.cluster import MiniBatchKMeans  # noqa
+from sklearn.metrics import adjusted_rand_score
 from scipy.stats import mannwhitneyu
 
 OK = "  [ok]"
@@ -38,7 +39,9 @@ def test_05_concept():
     print("%s nb05 concept: raw |r|=%.2f  wavelet band |r|=%.2f  (wavelets=%s)" % (OK, r_raw, r_wav, WSRC))
 
 
-def test_03_aib():
+def test_03_dib():
+    # The Deterministic Information Bottleneck (Strouse & Schwab 2017) used in nb03 -- same code
+    # the notebook runs, checked here for shape/logic bugs and for recovering known structure.
     def make(n_flies=6, T=1500, n_super=4, per_super=8, dwell=120, seed=0):
         r = np.random.default_rng(seed); N = n_super * per_super
         super_of = np.repeat(np.arange(n_super), per_super); out = []
@@ -48,46 +51,72 @@ def test_03_aib():
                 if r.random() < 1/dwell: mood = r.integers(n_super)
                 w = np.where(super_of == mood, 8., 1.); w[s] = 0; w /= w.sum()
                 s = int(r.choice(N, p=w)); seq.append(s)
-            out.append(np.array(seq))
-        return out, N
+            out.append(np.array(seq) + 1)                 # 1-based states (state v <-> region v)
+        return out, N, super_of
 
     def getTransitions(s): return s[np.r_[True, np.diff(s) != 0]]
 
-    def future_distributions(states, lag, n):
-        Pj = np.zeros((n, n))
-        for a, b in zip(states[:-lag], states[lag:]): Pj[b, a] += 1
-        p = Pj.sum(0); p = p / p.sum(); cond = Pj / np.clip(Pj.sum(0), 1, None)
-        return cond.T, p
+    def _safe_log2(A):
+        o = np.zeros_like(A, dtype=float); np.log2(A, out=o, where=A > 0); return o
 
-    def js(p, q, wp, wq):
-        m = wp * p + wq * q
-        def kl(a, b):
-            k = a > 0; return np.sum(a[k] * np.log2(a[k] / np.clip(b[k], 1e-12, None)))
-        return wp * kl(p, m) + wq * kl(q, m)
+    def dib_single(pXY, pX, pY_X, Hx, K, beta, rng, tol=1e-6, max_iter=200):
+        Nx, Ny = pXY.shape; f = rng.integers(0, K, size=Nx)
+        def stats(f):
+            oh = np.zeros((Nx, K)); oh[np.arange(Nx), f] = 1.; pT = oh.T @ pX; pYT = oh.T @ pXY
+            return pT, np.divide(pYT, pT[:, None], out=np.zeros_like(pYT), where=pT[:, None] > 0)
+        def cost(pT, pY_T):
+            idx = pT > 0; H_T = -np.sum(pT[idx]*np.log2(pT[idx]))
+            pYT = pY_T*pT[:, None]; pY = pYT.sum(0); den = pT[:, None]*pY[None, :]
+            ratio = np.divide(pYT, den, out=np.zeros_like(pYT), where=den > 0)
+            return H_T, (pYT*_safe_log2(ratio)).sum()
+        pT, pY_T = stats(f); H_T, I_YT = cost(pT, pY_T); prev = H_T - beta*I_YT
+        for _ in range(max_iter):
+            DKL = (-pY_X @ _safe_log2(pY_T).T) - Hx[:, None]
+            f = np.argmax(np.where(pT > 0, _safe_log2(pT), -np.inf)[None, :] - beta*DKL, axis=1)
+            pT, pY_T = stats(f); H_T, I_YT = cost(pT, pY_T); J = H_T - beta*I_YT
+            if abs(J - prev) < tol: break
+            prev = J
+        used = np.unique(f); return np.searchsorted(used, f), I_YT, H_T
 
-    def aib(states):
-        n = int(states.max()) + 1; cond, p = future_distributions(states, 5, n)
-        clusters = {i: [i] for i in range(n)}; cdist = {i: cond[i].copy() for i in range(n)}
-        cp = {i: p[i] for i in range(n)}; members = {i: i for i in range(n)}; merges = []
-        while len(clusters) > 1:
-            ids = list(clusters); best, bc = None, np.inf
-            for ai in range(len(ids)):
-                for bi in range(ai+1, len(ids)):
-                    a, b = ids[ai], ids[bi]; w = cp[a] + cp[b]
-                    cost = 0. if w == 0 else w * js(cdist[a], cdist[b], cp[a]/w, cp[b]/w)
-                    if cost < bc: bc, best = cost, (a, b)
-            a, b = best; w = cp[a] + cp[b] or 1.
-            cdist[a] = (cp[a]*cdist[a] + cp[b]*cdist[b]) / w; cp[a] += cp[b]; clusters[a] += clusters[b]
-            for s in clusters[b]: members[s] = a
-            del clusters[b], cdist[b], cp[b]; merges.append(dict(members))
-        return merges[::-1]
+    def build_joint(trans_list, state_vals, lag):
+        n = len(state_vals); F = np.zeros((n, n))
+        for s in trans_list:
+            s = np.searchsorted(state_vals, s)
+            if len(s) > lag: np.add.at(F, (s[:-lag], s[lag:]), 1.)
+        return F
 
-    sl, N = make()
-    states = np.concatenate([getTransitions(s) for s in sl])
-    merges = aib(states)
-    ks = sorted({len(set(m.values())) for m in merges})
-    assert ks[0] >= 1 and max(ks) <= N
-    print("%s nb03 aIB: built %d->%d clusters, %d snapshots" % (OK, max(ks), min(ks), len(merges)))
+    def pareto_front(pts):
+        keep = np.ones(len(pts), bool)
+        for i in range(len(pts)): keep[i] = not np.any(np.all(pts > pts[i], axis=1))
+        return keep
+
+    def run_dib(trans_list, state_vals, lag, n_restarts=300, min_clusters=2, max_clusters=12, seed=0):
+        rng = np.random.default_rng(seed)
+        pXY = build_joint(trans_list, state_vals, lag); pXY /= pXY.sum(); pX = pXY.sum(1)
+        pY_X = np.divide(pXY, pX[:, None], out=np.zeros_like(pXY), where=pX[:, None] > 0)
+        Hx = -np.sum(pY_X*_safe_log2(pY_X), axis=1)
+        HT = np.zeros(n_restarts); IYT = np.zeros(n_restarts); ncl = np.zeros(n_restarts, int); clus = [None]*n_restarts
+        for i in range(n_restarts):
+            beta = 10.**(-1 + 5*rng.random()); K = int(rng.integers(min_clusters, max_clusters+1))
+            clus[i], IYT[i], HT[i] = dib_single(pXY, pX, pY_X, Hx, K, beta, rng); ncl[i] = len(np.unique(clus[i]))
+        on = pareto_front(np.c_[-HT, IYT]); best = {}
+        for j in np.where(on)[0]:
+            if ncl[j] not in best or IYT[j] > IYT[best[ncl[j]]]: best[ncl[j]] = j
+        return dict(HT=HT, IYT=IYT, ncl=ncl, on=on, chosen=[best[k] for k in sorted(best)], clus=clus)
+
+    sl, N, super_of = make()
+    trans_list = [getTransitions(s) for s in sl]
+    state_vals = np.unique(np.concatenate(trans_list))
+    dib = run_dib(trans_list, state_vals, lag=5)
+    assert (dib["IYT"] >= -1e-9).all() and (dib["HT"] >= -1e-9).all(), "negative H[T] or I[Y;T]"
+    I_front = dib["IYT"][dib["on"]][np.argsort(dib["HT"][dib["on"]])]
+    assert np.all(np.diff(I_front) >= -1e-9), "I[Y;T] not monotone along the Pareto front"
+    j = min(dib["chosen"], key=lambda j: abs(dib["ncl"][j] - 4))      # level closest to 4 superclusters
+    ari = adjusted_rand_score(super_of[state_vals - 1], dib["clus"][j])
+    assert ari > 0.8, "DIB failed to recover the planted superclusters (ARI=%.2f)" % ari
+    ks = [int(dib["ncl"][k]) for k in dib["chosen"]]
+    print("%s nb03 DIB: front %d..%d clusters; recovers %d superclusters at k=%d (ARI=%.2f)"
+          % (OK, min(ks), max(ks), len(np.unique(super_of)), dib["ncl"][j], ari))
 
 
 def test_04_opto():
@@ -163,7 +192,7 @@ def test_02_social():
     print("%s nb02 social: poses %s, ego ok, social feats + tactogram ok" % (OK, A.shape))
 
 
-for name, fn in [("05", test_05_concept), ("03", test_03_aib), ("04", test_04_opto), ("02", test_02_social)]:
+for name, fn in [("05", test_05_concept), ("03", test_03_dib), ("04", test_04_opto), ("02", test_02_social)]:
     try:
         fn()
     except Exception:
