@@ -105,7 +105,9 @@ def make_synthetic(n_flies=12, T=4000, n_super=6, per_super=12, dwell=150, seed=
             w[s] = 0                                    # no self-transition (count transitions)
             w /= w.sum()
             s = int(rng.choice(N, p=w)); seq.append(s)
-        states_list.append(np.array(seq))
+        # emit 1-based state values so state v <-> regionMap region v (matches the real data,
+        # where regionMap==r is behavior r and 0 is background)
+        states_list.append(np.array(seq) + 1)
     # a density + region map for plotting
     gx = np.linspace(-9, 9, 200)
     XX, YY = np.meshgrid(gx, gx)
@@ -125,7 +127,7 @@ if not USE_SYNTHETIC_DATA:
         USE_SYNTHETIC_DATA = True
 if USE_SYNTHETIC_DATA:
     states_list, regionMap, density, xx, peakPoints = make_synthetic()
-    print("SYNTHETIC data:", len(states_list), "flies,", int(max(s.max() for s in states_list)) + 1, "states")
+    print("SYNTHETIC data:", len(states_list), "flies,", int(max(s.max() for s in states_list)), "states")
 """))
 cells.append(md("The region map &mdash; note that nearby region numbers tend to be similar behaviors:"))
 cells.append(code(r"""
@@ -219,93 +221,182 @@ we don't measure (hunger, arousal, ...) &mdash; that persist and bias behavior o
 """))
 
 # ---------------------------------------------------------------- hierarchy / DIB
-cells.append(md("# 6.&nbsp; Where do the time scales live? A hierarchy of behaviors"))
+cells.append(md("# 6.&nbsp; A hierarchy of behaviors: the deterministic information bottleneck"))
 cells.append(md(r"""
-If we had to *coarse-grain* the 117 behaviors into a few groups while preserving as much
-information about the **future** as possible, what groups would we get? This is the
-**information bottleneck** idea. We do it agglomeratively: repeatedly merge the two behaviors
-whose *futures* look most alike (lose the least predictive information), building a tree from 117
-behaviors down to 2.
-"""))
-cells.append(code(r"""
-def future_distributions(states, lag, n):
-    # P(future state | current cluster), plus each cluster's occupancy p.
-    Pj = np.zeros((n, n))               # rows: future, cols: current
-    for a, b in zip(states[:-lag], states[lag:]):
-        Pj[b, a] += 1
-    p = Pj.sum(0); p = p / p.sum()
-    cond = Pj / np.clip(Pj.sum(0), 1, None)     # columns normalized -> p(future|current)
-    return cond.T, p                            # cond[i] = future dist of cluster i
+§5 told us behavior carries memory far longer than any single movement &mdash; but *where in the
+repertoire* does that structure live? Here we coarse-grain the 117 behaviors into a few
+**clusters**, keeping the grouping that best predicts what the fly does **next**. This is the
+**information bottleneck** (Tishby, Pereira & Bialek 1999); we use the **deterministic** variant
+(DIB; Strouse & Schwab 2017), which is exactly the method Berman, Bialek & Shaevitz (2016) used to
+pull out the fly's behavioral hierarchy.
 
-def js(p, q, wp, wq):                  # information lost by merging (weighted Jensen-Shannon)
-    m = wp * p + wq * q
-    def kl(a, b):
-        mask = a > 0
-        return np.sum(a[mask] * np.log2(a[mask] / np.clip(b[mask], 1e-12, None)))
-    return wp * kl(p, m) + wq * kl(q, m)
+Summarize the current behavior $X$ by a cluster label $T$, then score that summary by how much it
+tells us about the future behavior $Y$. Two quantities pull against each other:
 
-def agglomerative_ib(states, lag):
-    n = int(states.max()) + 1
-    cond, p = future_distributions(states, lag, n)
-    clusters = {i: [i] for i in range(n)}
-    cdist = {i: cond[i].copy() for i in range(n)}
-    cp = {i: p[i] for i in range(n)}
-    merges, info = [], []
-    members = {i: i for i in range(n)}        # state -> current cluster id
-    while len(clusters) > 1:
-        ids = list(clusters)
-        best, bc = None, np.inf
-        for a_i in range(len(ids)):
-            for b_i in range(a_i + 1, len(ids)):
-                a, b = ids[a_i], ids[b_i]
-                w = cp[a] + cp[b]
-                if w == 0:
-                    cost = 0.0
-                else:
-                    cost = w * js(cdist[a], cdist[b], cp[a] / w, cp[b] / w)
-                if cost < bc:
-                    bc, best = cost, (a, b)
-        a, b = best
-        w = cp[a] + cp[b] or 1.0
-        cdist[a] = (cp[a] * cdist[a] + cp[b] * cdist[b]) / w
-        cp[a] += cp[b]; clusters[a] += clusters[b]
-        for s in clusters[b]:
-            members[s] = a
-        del clusters[b], cdist[b], cp[b]
-        merges.append(dict(members)); info.append(bc)
-    return merges[::-1]                         # coarse -> fine snapshots
+- $H[T]$ &mdash; the **size** of the summary (bits to name the cluster). Smaller = more compressed.
+- $I[Y;T]$ &mdash; how much the summary **predicts the future**. Larger = more useful.
 
-merges = agglomerative_ib(states, lag=5)
-print("built hierarchy from 2 up to %d clusters" % nstate)
-"""))
-cells.append(md("Draw a few levels of the hierarchy on the behavior map &mdash; watch clusters *subdivide* as we allow more of them:"))
-cells.append(code(r"""
-def relabel(members, K):
-    ids = sorted(set(members.values()))
-    if len(ids) != K:                # pick the snapshot with exactly K clusters
-        return None
-    remap = {c: i for i, c in enumerate(ids)}
-    return np.array([remap[members[s]] for s in range(nstate)])
-
-Ks = [2, 3, 4, 6]
-fig, axes = plt.subplots(1, len(Ks), figsize=(16, 4))
-for ax, K in zip(axes, Ks):
-    snap = next((m for m in merges if len(set(m.values())) == K), merges[min(K, len(merges)) - 1])
-    lab = relabel(snap, len(set(snap.values())))
-    img = np.zeros_like(regionMap, dtype=float) - 1
-    for r in range(1, nstate + 1):
-        if r - 1 < len(lab):
-            img[regionMap == r] = lab[r - 1]
-    img[regionMap == 0] = np.nan
-    ax.imshow(img, cmap="tab10", origin="lower"); ax.axis("off")
-    ax.set_title("%d clusters" % len(set(snap.values())))
-plt.suptitle("a hierarchy: more clusters subdivide existing ones"); plt.show()
+One knob $\beta$ trades them off: we minimize $H[T]-\beta\,I[Y;T]$. Sweep $\beta$ and the number of
+clusters and you trace a **Pareto front** &mdash; the most prediction achievable at each level of
+compression. Each point on that front is one level of the hierarchy.
 """))
 cells.append(md(r"""
-The partitions are **spatially contiguous** and **nested** &mdash; new clusters carve up old ones
-rather than reshuffling. That's the signature of a **hierarchy**: coarse behavioral categories
-(idle / groom / locomote) that split into finer and finer actions. Fly behavior is organized like
-a tree.
+**The DIB algorithm** is a hard-clustering loop. Fix a number of clusters $K$ and a trade-off
+$\beta$, start from a random assignment of behaviors to clusters, then repeat to convergence:
+
+1. each cluster's **predictive signature** is $p(Y\mid T)$ &mdash; the future-behavior distribution
+   averaged over its members;
+2. **reassign** every behavior $x$ to the cluster whose signature best matches its own future,
+   $\;f(x)=\arg\max_t\,\big[\log p(t)-\beta\,D_\mathrm{KL}(p(Y\mid x)\,\|\,p(Y\mid t))\big].$
+
+This is a direct port of the MATLAB `deterministicInformationBottleneck` / `run_DIB` from Gordon's
+behavioral-transitions tutorial.
+"""))
+cells.append(code(r"""
+def _safe_log2(A):
+    out = np.zeros_like(A, dtype=float)              # define log2(0):=0  (so 0*log0 -> 0)
+    np.log2(A, out=out, where=A > 0)
+    return out
+
+def dib_single(pXY, pX, pY_X, Hx, K, beta, rng, tol=1e-6, max_iter=200):
+    # One DIB run at fixed (K, beta). pXY = p(current, future); pX, pY_X, Hx are precomputed once
+    # (they don't change across runs). Returns (assignment f, I[Y;T], H[T]).
+    Nx, Ny = pXY.shape
+    f = rng.integers(0, K, size=Nx)                  # random hard assignment behavior -> cluster
+
+    def cluster_stats(f):
+        onehot = np.zeros((Nx, K)); onehot[np.arange(Nx), f] = 1.0
+        pT = onehot.T @ pX                           # p(T): cluster occupancy
+        pYT = onehot.T @ pXY                          # unnormalized p(future, T)
+        pY_T = np.divide(pYT, pT[:, None], out=np.zeros_like(pYT), where=pT[:, None] > 0)
+        return pT, pY_T                              # p(future | T): each cluster's signature
+
+    def cost(pT, pY_T):
+        idx = pT > 0
+        H_T = -np.sum(pT[idx] * np.log2(pT[idx]))    # H[T]  (compression)
+        pYT = pY_T * pT[:, None]; pY = pYT.sum(0)
+        denom = pT[:, None] * pY[None, :]
+        ratio = np.divide(pYT, denom, out=np.zeros_like(pYT), where=denom > 0)
+        I_YT = (pYT * _safe_log2(ratio)).sum()       # I[Y;T]  (prediction)
+        return H_T, I_YT
+
+    pT, pY_T = cluster_stats(f)
+    H_T, I_YT = cost(pT, pY_T)
+    prev = H_T - beta * I_YT
+    for _ in range(max_iter):
+        DKL = (-pY_X @ _safe_log2(pY_T).T) - Hx[:, None]      # D_KL(p(Y|x) || p(Y|t)), (Nx, K)
+        logpT = np.where(pT > 0, _safe_log2(pT), -np.inf)
+        f = np.argmax(logpT[None, :] - beta * DKL, axis=1)    # reassign every behavior
+        pT, pY_T = cluster_stats(f)
+        H_T, I_YT = cost(pT, pY_T)
+        J = H_T - beta * I_YT                                  # the DIB objective
+        if abs(J - prev) < tol:
+            break
+        prev = J
+    used = np.unique(f)
+    return np.searchsorted(used, f), I_YT, H_T        # drop empty clusters, relabel 0..k-1
+"""))
+cells.append(md(r"""
+One DIB run finds *a* clustering. To map out the whole trade-off we do many runs from random
+starts, each with a random number of clusters $K$ and random $\beta$, and keep the **Pareto-optimal**
+ones (you can't predict more without spending more bits). It's a Monte-Carlo search &mdash; more
+restarts give a smoother front; ~600 takes a few seconds.
+"""))
+cells.append(code(r"""
+def build_joint(trans_list, state_vals, lag):
+    # p(current, future) at this lag, counted *within* each fly only (no cross-fly transitions).
+    n = len(state_vals)
+    F = np.zeros((n, n))
+    for s in trans_list:
+        s = np.searchsorted(state_vals, s)            # state value -> 0..n-1 index
+        if len(s) > lag:
+            np.add.at(F, (s[:-lag], s[lag:]), 1.0)
+    return F
+
+def pareto_front(pts):
+    # rows not strictly dominated in *every* column (here: higher I[Y;T] AND lower H[T])
+    keep = np.ones(len(pts), bool)
+    for i in range(len(pts)):
+        keep[i] = not np.any(np.all(pts > pts[i], axis=1))
+    return keep
+
+def run_dib(trans_list, state_vals, lag, n_restarts=600, min_clusters=2, max_clusters=30,
+            min_log_beta=-1, max_log_beta=4, seed=0):
+    rng = np.random.default_rng(seed)
+    pXY = build_joint(trans_list, state_vals, lag); pXY = pXY / pXY.sum()
+    pX = pXY.sum(1)                                                  # p(current behavior)
+    pY_X = np.divide(pXY, pX[:, None], out=np.zeros_like(pXY), where=pX[:, None] > 0)
+    Hx = -np.sum(pY_X * _safe_log2(pY_X), axis=1)                   # entropy of each p(Y|x), reused
+    HT = np.zeros(n_restarts); IYT = np.zeros(n_restarts); ncl = np.zeros(n_restarts, int)
+    clus = [None] * n_restarts
+    for i in range(n_restarts):
+        beta = 10.0 ** (min_log_beta + (max_log_beta - min_log_beta) * rng.random())
+        K = int(rng.integers(min_clusters, max_clusters + 1))
+        clus[i], IYT[i], HT[i] = dib_single(pXY, pX, pY_X, Hx, K, beta, rng)
+        ncl[i] = len(np.unique(clus[i]))
+    on = pareto_front(np.c_[-HT, IYT])                              # Pareto-optimal trade-offs
+    best = {}                                                       # per cluster-count, the max-I[Y;T] solution
+    for j in np.where(on)[0]:
+        if ncl[j] not in best or IYT[j] > IYT[best[ncl[j]]]:
+            best[ncl[j]] = j
+    chosen = [best[k] for k in sorted(best)]
+    return dict(HT=HT, IYT=IYT, ncl=ncl, on=on, chosen=chosen, clus=clus)
+
+trans_list = [demoutils.getTransitions(s) for s in states_list]   # per-fly transition sequences
+state_vals = np.unique(np.concatenate(trans_list))                # behaviors that actually occur
+print("%d behaviors, %d transitions pooled over %d flies"
+      % (len(state_vals), sum(len(t) for t in trans_list), len(trans_list)))
+
+dib = run_dib(trans_list, state_vals, lag=5, n_restarts=600, seed=0)
+print("Pareto front: %d optimal clusterings; cluster counts %s"
+      % (len(dib["chosen"]), [int(dib["ncl"][j]) for j in dib["chosen"]]))
+"""))
+cells.append(md("The trade-off curve. Each red point is an optimal clustering; grey points are runs it beats. Labels mark the number of clusters."))
+cells.append(code(r"""
+fig, ax = plt.subplots(figsize=(6.5, 5))
+off = ~dib["on"]
+ax.plot(dib["HT"][off], dib["IYT"][off], "x", color="0.7", ms=4, label="sub-optimal runs")
+front = sorted(np.where(dib["on"])[0], key=lambda j: dib["HT"][j])
+ax.plot(dib["HT"][front], dib["IYT"][front], "s-", color="crimson", ms=4, label="Pareto front")
+for j in dib["chosen"]:
+    if dib["ncl"][j] <= 8:
+        ax.annotate(str(int(dib["ncl"][j])), (dib["HT"][j], dib["IYT"][j]),
+                    textcoords="offset points", xytext=(5, -10), fontsize=9, color="crimson")
+ax.set_xlabel(r"$H[T]$  (bits to name the cluster)  $\to$  more compression")
+ax.set_ylabel(r"$I[Y;T]$  (bits about the future)  $\to$  more prediction")
+ax.legend(loc="lower right"); ax.set_title("DIB trade-off: prediction vs. compression (lag = 5)")
+plt.show()
+"""))
+cells.append(md(r"""
+The curve climbs steeply, then saturates: the **first few clusters buy almost all the predictive
+information**, and past a handful you pay more and more bits of $H[T]$ for less and less $I[Y;T]$.
+Those first, cheap splits are the coarse behavioral categories &mdash; the top of the hierarchy.
+"""))
+cells.append(md("Now draw the optimal clusterings themselves on the behavior map &mdash; one panel per labelled point on the front, coarse to fine:"))
+cells.append(code(r"""
+def partition_image(f, state_vals):
+    img = np.full(regionMap.shape, np.nan)            # NaN = background / watershed boundaries
+    for i, v in enumerate(state_vals):
+        img[regionMap == v] = f[i]                    # color region v by its cluster (state v <-> region v)
+    return img
+
+levels = [j for j in dib["chosen"] if 2 <= dib["ncl"][j] <= 7]
+fig, axes = plt.subplots(1, len(levels), figsize=(3.1 * len(levels), 3.5))
+for ax, j in zip(np.atleast_1d(axes), levels):
+    ax.imshow(partition_image(dib["clus"][j], state_vals), cmap="tab10",
+              origin="lower", interpolation="nearest")
+    ax.axis("off")
+    ax.set_title("%d clusters\nH[T]=%.2f  I[Y;T]=%.2f"
+                 % (dib["ncl"][j], dib["HT"][j], dib["IYT"][j]), fontsize=10)
+plt.suptitle("levels of the behavioral hierarchy (DIB partitions)"); plt.tight_layout(); plt.show()
+"""))
+cells.append(md(r"""
+Two things to notice. The clusters are **spatially contiguous** &mdash; each is a connected
+territory on the map, even though the DIB never sees the 2-D layout: it groups behaviors purely by
+*shared future*. And the levels are **approximately nested** &mdash; more clusters mostly
+*subdivide* existing ones rather than reshuffling. That nesting **is** the hierarchy: coarse
+categories (idle / groom / locomote) splitting into finer and finer actions, recovered from
+temporal statistics alone. Fly behavior is organized like a tree.
 """))
 
 # ---------------------------------------------------------------- bridge
@@ -316,8 +407,9 @@ Those slow eigenvalues you found in §5 are exactly the spectrum of a *transfer 
 a principled, modern way to pull the **slow collective modes** straight out of them &mdash; that's
 notebook **`05_slow_modes.ipynb`** (and it's what Greg Stephens will go deeper on tomorrow).
 
-🔧 **Your turn:** change the lag in `agglomerative_ib(states, lag=5)` to 50. Does coarse-graining
-to predict the *distant* future give you *coarser* groups than predicting the near future?
+🔧 **Your turn:** re-run `run_dib(..., lag=50)` to compress for the *distant* future. Do you get
+*coarser* groups &mdash; fewer cheap splits on the front &mdash; than predicting the near future?
+Then try widening the search with `max_clusters=40` or `n_restarts=2000` for a cleaner front.
 """))
 
 write_nb(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
