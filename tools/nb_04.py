@@ -59,18 +59,37 @@ print("ready")
 # ---------------------------------------------------------------- data
 cells.append(md("# 2.&nbsp; Load the flies, their map positions, and the light"))
 cells.append(md(r"""
-For each fly we need: its trajectory **in behavior space** (a 2-D point per frame, from a map like
-the one you built in notebook 01) and a **light on/off** time series. Half the flies are
-**experimental** (light activates the neuron); half are **controls** (genetically identical but
-the light does nothing &mdash; the crucial comparison).
+For each fly we need its trajectory **in behavior space** (a 2-D point per frame, from a map like
+the one in notebook 01) and a **light on/off** time series.
 
-> **Instructors:** host a few strains of `*_projections_tsne_embedding.mat` + `*_Frames.txt` from
-> the Cande example data and set `USE_SYNTHETIC_DATA = False`. The stand-in below has a neuron
-> whose activation drives one particular behavior.
+This loads a **real strain from Cande et al. 2018** (`ss02635`): one filming session of **12 flies**
+recorded at once. The design has its control built in &mdash; **cameras 7&ndash;12 are
+experimental** (fed all-*trans*-retinal, so the light-gated channel *Chrimson* is functional) and
+**cameras 1&ndash;6 are controls** (no retinal, so the identical light does nothing). The light
+pulses in ~15&nbsp;s cycles; the embeddings were computed exactly as in notebook 01 and
+down-sampled to 25&nbsp;Hz to keep the download small (~4&nbsp;MB).
+
+Set `USE_SYNTHETIC_DATA = True` (or if the download fails) to use the stand-in generator instead,
+which has a neuron whose activation drives one particular behavior.
 """))
 cells.append(code(r"""
-USE_SYNTHETIC_DATA = True
-DATA_URL = "https://PLACEHOLDER-HOST/cande_example_data.zip"   # TODO: real link
+USE_SYNTHETIC_DATA = False           # set True to force the stand-in generator below
+STRAIN = "ss02635"                   # a Cande 2018 driver line; try "ss01049" for a different behavior
+OUTFILE = STRAIN + ".npz"
+DATA_URL = ("https://raw.githubusercontent.com/bermanlabemory/"
+            "unsupervised-behavior-tutorials/main/data/optogenetic_data/" + OUTFILE)
+
+def load_real():
+    # one filming session, 12 flies: cams 1-6 = control (no retinal), 7-12 = experimental.
+    if not os.path.exists(OUTFILE):
+        !wget -q "$DATA_URL" -O "$OUTFILE"
+    if not os.path.exists(OUTFILE) or os.path.getsize(OUTFILE) < 100000:
+        raise RuntimeError("download failed -- is the repo public yet?")
+    d = np.load(OUTFILE)
+    bounds = np.cumsum(d["fly_lengths"])[:-1]
+    flies = [z.astype(float) for z in np.split(d["z"], bounds)]   # per-fly (T x 2) map trajectory
+    leds = [l.astype(bool) for l in np.split(d["led"], bounds)]   # per-fly light on/off
+    return flies, leds, np.array(d["is_control"]), int(d["fps"])
 
 def make_synthetic(n_exp=8, n_ctrl=8, fps=30, n_trials=20, on_s=5, off_s=10,
                    triggered_behavior=4, seed=0):
@@ -96,9 +115,19 @@ def make_synthetic(n_exp=8, n_ctrl=8, fps=30, n_trials=20, on_s=5, off_s=10,
         flies.append(z); leds.append(led); is_ctrl.append(control)
     return flies, leds, np.array(is_ctrl), blobs, triggered_behavior
 
-flies, leds, is_ctrl, blobs, true_trig = make_synthetic()
-fps = 30
-print("%d experimental + %d control flies" % ((~is_ctrl).sum(), is_ctrl.sum()))
+blobs = true_trig = None             # only set by the synthetic generator (used in section 5)
+if not USE_SYNTHETIC_DATA:
+    try:
+        flies, leds, is_ctrl, fps = load_real()
+        print("REAL data (%s): %d experimental + %d control flies @ %d fps"
+              % (STRAIN, (~is_ctrl).sum(), is_ctrl.sum(), fps))
+    except Exception as e:
+        print("Could not load real data (%s) -- falling back to synthetic." % e)
+        USE_SYNTHETIC_DATA = True
+if USE_SYNTHETIC_DATA:
+    flies, leds, is_ctrl, blobs, true_trig = make_synthetic()
+    fps = 30
+    print("SYNTHETIC: %d experimental + %d control flies" % ((~is_ctrl).sum(), is_ctrl.sum()))
 """))
 
 # ---------------------------------------------------------------- map
@@ -173,7 +202,9 @@ ax.contour(np.linspace(-R, R, NP), np.linspace(-R, R, NP), inside, [0.5], colors
 im = ax.imshow(difference_map, extent=(-R, R, -R, R), origin="lower", cmap="RdBu_r", vmin=-v, vmax=v)
 ax.set_title("significant light-driven behavior\n(red = up-regulated by activation)")
 ax.axis("off"); plt.colorbar(im, fraction=0.046); plt.show()
-print("up-regulated region near true triggered behavior at", blobs[true_trig])
+if true_trig is not None:            # synthetic: we know the ground-truth triggered behavior
+    print("up-regulated region near true triggered behavior at", blobs[true_trig])
+print("%d significant map locations (BH-FDR, q=0.05)" % int(sig.sum()))
 """))
 cells.append(md(r"""
 The pipeline found the triggered behavior with **no human labels** &mdash; just "where does the
@@ -192,22 +223,32 @@ def in_driven(z):
     yi = np.clip(((z[:, 1] + R) / (2 * R) * (NP - 1)).astype(int), 0, NP - 1)
     return driven[yi, xi].astype(float)
 
-win = 3 * fps
+def on_duration(leds, fps):          # median light-ON length (s), measured from the data
+    durs = []
+    for led in leds:
+        e = np.diff(np.r_[0, led.astype(int), 0])
+        durs += list((np.where(e == -1)[0] - np.where(e == 1)[0]) / fps)
+    return float(np.median(durs)) if durs else 1.0
+
+on_s = on_duration(leds, fps)
+pre, post = int(round(on_s * fps)), int(round(2 * on_s * fps))   # show one ON before, two after
+
 def psth(group):
     out = []
     for z, led in zip([flies[k] for k in group], [leds[k] for k in group]):
         occ, onsets = in_driven(z), np.where(np.diff(led.astype(int)) == 1)[0]
-        trials = [occ[o - win:o + 2 * win] for o in onsets if o - win >= 0 and o + 2 * win < len(occ)]
-        out.append(np.mean(trials, 0))
+        trials = [occ[o - pre:o + post] for o in onsets if o - pre >= 0 and o + post <= len(occ)]
+        if trials:
+            out.append(np.mean(trials, 0))
     return np.array(out)
 
-t = (np.arange(-win, 2 * win)) / fps
+t = np.arange(-pre, post) / fps
 fig, ax = plt.subplots(figsize=(8, 4))
 for grp, lab, c in [(np.where(~is_ctrl)[0], "experimental", "firebrick"),
                     (np.where(is_ctrl)[0], "control", "grey")]:
     P = psth(grp); ax.plot(t, P.mean(0), color=c, label=lab)
     ax.fill_between(t, P.mean(0) - P.std(0), P.mean(0) + P.std(0), color=c, alpha=0.2)
-ax.axvspan(0, 5, color="red", alpha=0.1, label="light ON")
+ax.axvspan(0, on_s, color="red", alpha=0.1, label="light ON")
 ax.set_xlabel("time from light onset (s)"); ax.set_ylabel("P(in driven behavior)")
 ax.legend(); plt.show()
 """))
@@ -237,13 +278,18 @@ for grp, lab in [(np.where(~is_ctrl)[0], "experimental"), (np.where(is_ctrl)[0],
 cells.append(md(r"""
 # 8.&nbsp; 🔧 Your turn
 
-1. In `make_synthetic(...)`, change `triggered_behavior` to a different blob (0–5) and rerun. Does
-   the pipeline track it to the new location?
-2. Shrink the effect (`w[triggered_behavior] += 0.4`). At what point does it stop being
-   significant? (This is your statistical power &mdash; very relevant for designing real screens.)
-3. Narrow the analysis window to the first second after light onset. Do fast and slow behaviors
-   separate?
-4. **Bring your own:** this is the template for *your* opto/chemo experiment &mdash; see
+1. **Swap the driver line.** Set `STRAIN = "ss01049"` in &sect;2 and rerun the whole notebook. A
+   *different* neuron drives a *different* behavior &mdash; where does this one land on the map, and
+   is it up- or down-regulated?
+2. **Spend less data.** Keep only the first 3 experimental + 3 control flies. Does the driven region
+   survive the FDR correction with half the flies? (That's your statistical power &mdash; directly
+   relevant to designing a real screen.)
+3. **Tighten the window.** Count only the first second after each light onset as "ON" (instead of
+   the whole pulse) and rerun &sect;4&ndash;5. Do fast and slow behaviors separate?
+4. **Know the ground truth.** Set `USE_SYNTHETIC_DATA = True` for a generator where *you* set the
+   answer &mdash; move `triggered_behavior`, shrink the effect (`w[triggered_behavior] += 0.4`), and
+   watch significance appear and vanish.
+5. **Bring your own:** this is the template for *your* opto/chemo experiment &mdash; see
    `06_bring_your_own_data.ipynb` to build the map, then drop your stimulus times in here.
 """))
 
