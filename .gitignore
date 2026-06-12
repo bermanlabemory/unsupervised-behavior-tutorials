@@ -1,0 +1,7 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Notebook / OS cruft
+.ipynb_checkpoints/
+.DS_Store

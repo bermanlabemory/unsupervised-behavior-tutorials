@@ -74,7 +74,7 @@ which has a neuron whose activation drives one particular behavior.
 """))
 cells.append(code(r"""
 USE_SYNTHETIC_DATA = False           # set True to force the stand-in generator below
-STRAIN = "ss02635"                   # a Cande 2018 driver line; try "ss01049" for a different behavior
+STRAIN = "ss02635"                   # a Cande 2018 driver line (see the full menu in section 9)
 OUTFILE = STRAIN + ".npz"
 DATA_URL = ("https://raw.githubusercontent.com/bermanlabemory/"
             "unsupervised-behavior-tutorials/main/data/optogenetic_data/" + OUTFILE)
@@ -278,9 +278,9 @@ for grp, lab in [(np.where(~is_ctrl)[0], "experimental"), (np.where(is_ctrl)[0],
 cells.append(md(r"""
 # 8.&nbsp; 🔧 Your turn
 
-1. **Swap the driver line.** Set `STRAIN = "ss01049"` in &sect;2 and rerun the whole notebook. A
-   *different* neuron drives a *different* behavior &mdash; where does this one land on the map, and
-   is it up- or down-regulated?
+1. **Swap the driver line.** Set `STRAIN` in &sect;2 to any line from the menu in &sect;9 below and
+   rerun the whole notebook. A *different* neuron drives a *different* behavior &mdash; where does
+   this one land on the map, and is it up- or down-regulated?
 2. **Spend less data.** Keep only the first 3 experimental + 3 control flies. Does the driven region
    survive the FDR correction with half the flies? (That's your statistical power &mdash; directly
    relevant to designing a real screen.)
@@ -291,6 +291,33 @@ cells.append(md(r"""
    watch significance appear and vanish.
 5. **Bring your own:** this is the template for *your* opto/chemo experiment &mdash; see
    `06_bring_your_own_data.ipynb` to build the map, then drop your stimulus times in here.
+"""))
+
+# ---------------------------------------------------------------- strain menu
+cells.append(md("# 9.&nbsp; The full menu of driver lines"))
+cells.append(md(r"""
+**Seven** real driver lines from Cande et al. 2018 ship with this repo &mdash; each one a different
+descending neuron, each its own 12-fly session (cameras 1&ndash;6 control, 7&ndash;12 experimental).
+Set `STRAIN` in &sect;2 to any of these and rerun:
+
+| `STRAIN` | what this simple ON&ndash;vs&ndash;OFF screen finds |
+|---|---|
+| `"ss02635"` | **the default** &mdash; the strongest, cleanest hit (a large up-regulated region) |
+| `"ss02617_0226"` | another clear hit |
+| `"ss01049"` | a clear hit elsewhere on the map, with both up- **and** down-regulation |
+| `"ss01540"` | a subtler hit (mostly *down*-regulation &mdash; a behavior the light suppresses) |
+| `"ss01597_1v_1022"` | no region survives the FDR test here |
+| `"ss01602"` | no region survives the FDR test here |
+| `"ss02393_1v_1009"` | no region survives the FDR test here |
+
+Those last three are a deliberate reality check. Not every neuron yields a hit &mdash; and our
+**simplified** screen (whole-stimulus ON vs whole-stimulus OFF) deliberately trades sensitivity for
+clarity, so it can miss a *transient* response that the full windowed analysis in the paper (a tight
+post-onset window vs a matched OFF window) would catch. Finding nothing is a real, informative
+outcome: it's what most of a genome-scale screen looks like.
+
+> 🔧 Loop over all seven (`for STRAIN in [...]:`) and print the number of significant locations for
+> each &mdash; you've just built a miniature behavioral screen.
 """))
 
 write_nb(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

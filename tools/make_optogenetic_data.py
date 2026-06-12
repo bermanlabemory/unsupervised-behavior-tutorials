@@ -78,7 +78,10 @@ def save_strain(strain):
              int((~is_control).sum()), FPS))
 
 
+ALL_STRAINS = ["ss02635", "ss01049", "ss02617_0226", "ss01540",
+               "ss01597_1v_1022", "ss01602", "ss02393_1v_1009"]
+
 if __name__ == "__main__":
     import sys
-    for s in sys.argv[1:] or ["ss02635", "ss01049"]:
+    for s in sys.argv[1:] or ALL_STRAINS:
         save_strain(s)
