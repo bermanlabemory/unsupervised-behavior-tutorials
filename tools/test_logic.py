@@ -156,40 +156,33 @@ def test_04_opto():
 
 
 def test_02_social():
-    CANON = np.array([[4,0,1.],[3,0,1.1],[2,0,1.],[0,0,1.],[-2,0,.9],[-1.8,.8,.7],[-1.8,-.8,.7],[-3.5,0,.6]])
-    def poses(T, behav, head, center, rear, groom, fps):
-        P = np.tile(CANON, (T, 1, 1)).astype(float); front = [0,1,2,3]; lift = np.array([1.,.8,.5,.2])
-        P[:, front, 2] += rear[:, None]*lift; g = (behav == 3)
-        P[:, 0, 2] += np.where(g, .6*np.sin(groom), 0); P[:, 1, 2] += np.where(g, .4*np.sin(groom), 0)
-        c, s = np.cos(head), np.sin(head); x, y = P[:, :, 0].copy(), P[:, :, 1].copy()
-        P[:, :, 0] = x*c[:, None]-y*s[:, None]+center[:, None, 0]; P[:, :, 1] = x*s[:, None]+y*c[:, None]+center[:, None, 1]
-        return P
-    def walk(T, fps, amph, seed):
-        r = np.random.default_rng(seed)
-        Tm = np.array([[.6,.2,.1,.1],[.15,.7,.1,.05],[.2,.2,.55,.05],[.2,.15,.05,.6]])
-        if amph: Tm[:, 1] += .15; Tm /= Tm.sum(1, keepdims=True)
-        b = np.zeros(T, int)
-        for t in range(1, T): b[t] = r.choice(4, p=Tm[b[t-1]])
-        head = np.cumsum(r.normal(0, .15, T)); center = np.clip(np.cumsum(r.normal(0, .3, (T, 2)), 0), -18, 18)
-        rear = np.clip((b == 2).astype(float), 0, 1.2); groom = np.cumsum(np.full(T, 2*np.pi*5/fps))
-        return b, head, center, rear, groom
-    fps, T = 30, 800
-    A = poses(T, *walk(T, fps, 0, 1), fps); B = poses(T, *walk(T, fps, 0, 2), fps)
-    assert A.shape == (T, 8, 3)
-    def egocenter(P):
-        Q = P - P[:, 4:5, :]; th = np.arctan2(Q[:, 0, 1], Q[:, 0, 0]); c, s = np.cos(-th), np.sin(-th)
-        x, y = Q[:, :, 0].copy(), Q[:, :, 1].copy()
-        Q[:, :, 0], Q[:, :, 1] = x*c[:, None]-y*s[:, None], x*s[:, None]+y*c[:, None]
-        return Q.reshape(len(P), -1)
-    assert egocenter(A).shape == (T, 24)
-    cAxy, cBxy = A[:, 4, :2], B[:, 4, :2]; d = np.linalg.norm(cAxy - cBxy, axis=1)
-    headA = np.arctan2(*(A[:, 0, :2] - A[:, 4, :2]).T[::-1]); to_B = np.arctan2(*(cBxy - cAxy).T[::-1])
-    rel = np.arctan2(np.sin(to_B - headA), np.cos(to_B - headA)); assert rel.shape == (T,)
-    tact = np.zeros((8, 8))
-    for t in range(0, T, 10):
-        tact += np.linalg.norm(A[t][:, None] - B[t][None], axis=2) < 1.2
-    assert tact.shape == (8, 8) and d.shape == (T,)
-    print("%s nb04 social: poses %s, ego ok, social feats + tactogram ok" % (OK, A.shape))
+    # nb04 social: synchrony enrichment, joint-occupancy JS phenotype, and the region tactogram --
+    # the novel numpy of the real-data social notebook, checked here on synthetic stand-ins.
+    rng = np.random.default_rng(0)
+    # (1) synchrony: partners with a planted tendency to share coarse behavior -> positive diagonal
+    NI, T = 6, 20000
+    a = rng.integers(1, NI + 1, T)
+    b = np.where(rng.random(T) < 0.6, a, rng.integers(1, NI + 1, T))     # 60% match the partner
+    co = np.zeros((NI, NI))
+    for x, y in zip(a, b): co[x - 1, y - 1] += 1
+    P = co / co.sum(); E = P.sum(1, keepdims=True) @ P.sum(0, keepdims=True)
+    enr = np.log2((P + 1e-9) / (E + 1e-9))
+    assert np.mean(np.diag(enr)) > 0.3 > np.mean(enr[~np.eye(NI, dtype=bool)]), "synchrony not enriched"
+    # (2) phenotype: amph dyads' joint-occupancy sits further from the control profile (JS + MWU)
+    def js(p, q):
+        p = p + 1e-12; q = q + 1e-12; p /= p.sum(); q /= q.sum(); m = .5 * (p + q)
+        kl = lambda u, v: np.sum(u * np.log2(u / v)); return .5 * kl(p, m) + .5 * kl(q, m)
+    K = 8
+    ctrl = rng.dirichlet(np.ones(K) * 5, 16)
+    amph = rng.dirichlet(np.r_[np.ones(K - 2) * 5, [15, 15]], 16)        # shifted toward 2 classes
+    ref = ctrl.mean(0)
+    jsc = [js(o, ref) for o in ctrl]; jsa = [js(o, ref) for o in amph]
+    assert np.mean(jsa) > np.mean(jsc) and mannwhitneyu(jsc, jsa).pvalue < 0.05, "phenotype not separated"
+    # (3) region tactogram: contact when two animals' keypoints fall within threshold
+    A = rng.normal(0, 50, (23, 3)); B = A + np.r_[5.0, 0, 0]            # B almost on top of A
+    assert (np.linalg.norm(A[:, None] - B[None], axis=2) < 40).any(), "tactogram contact broken"
+    print("%s nb04 social: synchrony diag=+%.2f bits, amph vs ctrl p<0.05, tactogram ok"
+          % (OK, np.mean(np.diag(enr))))
 
 
 for name, fn in [("05", test_05_concept), ("02", test_03_dib), ("06", test_04_opto), ("04", test_02_social)]:

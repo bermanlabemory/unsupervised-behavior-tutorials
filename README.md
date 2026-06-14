@@ -63,7 +63,7 @@ See [`data/README.md`](data/README.md); real data is regenerated from source by 
 | 01 core | fly LEAP data — ships inside motionmapperpy | ✅ |
 | 02 transitions | `data/transition_data.mat` (59 flies, 117 states; Berman 2016) | ✅ in repo |
 | 03 rat individual | `data/rat_data/` (amph embeddings + a keypoint sample; Klibaite/Berman rats) | ✅ in repo |
-| 04 rat social | synthetic two-rat stand-in (real CTRL+AMPH dyad poses to come) | 🔧 synthetic; real TODO (Ugne) |
+| 04 rat social | `data/rat_data/rat_social*.npz` (real Long-Evans dyads: 45 sessions, ctrl + amph) | ✅ in repo |
 | 05 slow modes | ships inside the slowmode repo (cached `.npz`/`.pkl`) | ✅ |
 | 06 optogenetics | `data/optogenetic_data/` (7 Cande 2018 driver lines) | ✅ in repo |
 | 07 bring-your-own | you provide it | — |

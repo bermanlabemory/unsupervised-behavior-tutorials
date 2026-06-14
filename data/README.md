@@ -13,6 +13,13 @@ stand-in) so the repo stays Colab-friendly. Real data small enough to ship lives
   `rat_keypoints_session1.npz` (a 3-D DANNCE keypoint clip + skeleton + one session's behavioral map,
   for the "look at the raw data" intro). Regenerate with `python tools/make_rat_data.py`; source is
   `Dropbox/.../tutorial-data-uk/`.
+- **`rat_data/rat_social.npz` + `rat_data/rat_social_keypoints.npz`** (~20 MB) — real Long-Evans
+  dyads for `04_rat_social_behavior.ipynb`: 45 dyads (24 control + 21 amph) + 30 lone sessions, each
+  with the precomputed **individual** map (`cz_action` + coarse labels) and **social/joint** map
+  (`sz_joint` + coarse labels) and partner labels (`rat_social.npz`), plus 23-joint 3-D keypoints for
+  2 example dyads + a viz clip (`rat_social_keypoints.npz`), down-sampled to 5 Hz. `isamph`: 0 =
+  control, 1 = amphetamine, 2 = saline cage-mate of an amph rat. Regenerate with
+  `python tools/make_rat_social_data.py`; source is `Dropbox/LE_CONTROL_AMPH/`.
 - **`optogenetic_data/*.npz`** (7 files, ~4 MB each) — all seven real driver lines from the Cande
   et al. 2018 example data (`ss02635`, `ss02617_0226`, `ss01049`, `ss01540`, `ss01597_1v_1022`,
   `ss01602`, `ss02393_1v_1009`), for `06_optogenetics.ipynb` (defaults to the real data; the
@@ -23,14 +30,11 @@ stand-in) so the repo stays Colab-friendly. Real data small enough to ship lives
   with `python tools/make_optogenetic_data.py`; the source is in
   `Dropbox/.../Cajal_behavior/Fly_Optogenetic_Analysis/example_data/`.
 
-The synthetic-fallback notebooks (`04_rat_social_behavior`, `07_bring_your_own_data`) keep
-`USE_SYNTHETIC_DATA = True` so they run with no network access.
+`07_bring_your_own_data.ipynb` is the only notebook without bundled data — it's a template you point
+at your own tracking.
 
-## Still to wire up (before 17 June)
+## Still to wire up
 
-| Notebook | What to host | Source |
-|---|---|---|
-| `04_rat_social_behavior.ipynb` | a small CTRL + amphetamine rat-**dyad** subset (3-D keypoints, a few sessions per group) — currently synthetic | Klibaite 2025 s-DANNCE release (Ugne) |
-
-`01_build_a_behavioral_map.ipynb` (fly LEAP) and `05_slow_modes.ipynb` (cached `.npz`/`.pkl`)
-download their data automatically by cloning `motionmapperpy` and `slowmode` — no action needed.
+All Act-2 datasets are now in the repo. `01_build_a_behavioral_map.ipynb` (fly LEAP) and
+`05_slow_modes.ipynb` (cached `.npz`/`.pkl`) download their data automatically by cloning
+`motionmapperpy` and `slowmode` — no action needed.
