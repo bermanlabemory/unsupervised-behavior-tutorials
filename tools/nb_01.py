@@ -432,7 +432,7 @@ Pick one or two &mdash; each is a one-line change, rerun from that cell down:
 1. **Frequency band (§4):** set `parameters.maxF = 20`. Which behaviors blur together when you
    stop "listening" to fast leg movements?
 2. **Granularity (§7):** set `minimum_regions = 25`. Do the new regions *subdivide* old ones, or
-   reshuffle them? (This is a sneak peek at hierarchy &mdash; see notebook 03.)
+   reshuffle them? (This is a sneak peek at hierarchy &mdash; see notebook 02.)
 3. **Smoothing (§6):** sweep `sigma` over 0.5, 1, 3. What's the "right" number of behaviors?
    (Trick question &mdash; it depends on what you want to measure.)
 4. **t-SNE vs UMAP (§4):** set `parameters.method = "TSNE"` and rebuild from §6. Same biology,
@@ -440,22 +440,29 @@ Pick one or two &mdash; each is a one-line change, rerun from that cell down:
 """))
 
 # ---------------------------------------------------------------- checkpoint
-cells.append(md("# 11.&nbsp; Save your map, then choose your adventure"))
+cells.append(md("# 11.&nbsp; Save your map, then on to the rest"))
 cells.append(code(r"""
 !zip -qr Fly_mmpy.zip Fly_mmpy
 print("checkpoint saved to Fly_mmpy.zip — download it from the file browser on the left if you like")
 """))
 cells.append(md(r"""
-🎉 **You built a behavioral map.** That's the engine. Now go *do science* with it &mdash; pick a
-track (each is a standalone notebook; none requires you to have finished this one perfectly):
+🎉 **You built a behavioral map.** That's the engine the rest of the afternoon builds on. We'll go
+through the next few **together** &mdash; each is a standalone notebook that loads its own data, so you
+can run any of them even if your map here isn't perfect:
 
 | Notebook | You'll answer |
 |---|---|
-| `02_social_behavior_rats.ipynb` | What do two animals do **together**? |
-| `03_transitions_and_hierarchy.ipynb` | Is behavior **Markovian**? How is it organized in time? |
-| `04_optogenetics.ipynb` | Which behaviors does **activating a neuron** trigger? |
+| `02_transitions_and_hierarchy.ipynb` | Is behavior **Markovian**? How is it organized in time? |
+| `03_rat_individual_behavior.ipynb` | How does **amphetamine** reshape a rat's repertoire? |
+| `04_rat_social_behavior.ipynb` | How do you **quantify what two animals do together**? |
 | `05_slow_modes.ipynb` | What **slow internal states** bias the fast actions? |
-| `06_bring_your_own_data.ipynb` | Run all of this on **your own** animal. |
+
+And for the end of the session (or your own time):
+
+| Notebook | You'll answer |
+|---|---|
+| `06_optogenetics.ipynb` | Which behaviors does **activating a neuron** trigger? |
+| `07_bring_your_own_data.ipynb` | Run all of this on **your own** animal. |
 """))
 
 write_nb(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

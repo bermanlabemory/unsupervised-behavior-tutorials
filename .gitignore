@@ -5,3 +5,9 @@ __pycache__/
 # Notebook / OS cruft
 .ipynb_checkpoints/
 .DS_Store
+
+# Engines + project dirs that notebooks clone/create at runtime (never commit these)
+/motionmapperpy/
+/slowmode/
+/Fly_mmpy/
+/MyData_mmpy/

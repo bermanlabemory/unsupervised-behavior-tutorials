@@ -115,7 +115,7 @@ def test_03_dib():
     ari = adjusted_rand_score(super_of[state_vals - 1], dib["clus"][j])
     assert ari > 0.8, "DIB failed to recover the planted superclusters (ARI=%.2f)" % ari
     ks = [int(dib["ncl"][k]) for k in dib["chosen"]]
-    print("%s nb03 DIB: front %d..%d clusters; recovers %d superclusters at k=%d (ARI=%.2f)"
+    print("%s nb02 DIB: front %d..%d clusters; recovers %d superclusters at k=%d (ARI=%.2f)"
           % (OK, min(ks), max(ks), len(np.unique(super_of)), dib["ncl"][j], ari))
 
 
@@ -152,7 +152,7 @@ def test_04_opto():
         m = np.zeros_like(pvals, bool); m[tested] = pvals[tested] <= crit; return m
     sig = bh(pmap, inside)
     assert sig.sum() > 0, "no significant pixels — effect/power too weak"
-    print("%s nb04 opto: %d significant pixels (BH-FDR, 8v8)" % (OK, int(sig.sum())))
+    print("%s nb06 opto: %d significant pixels (BH-FDR, 8v8)" % (OK, int(sig.sum())))
 
 
 def test_02_social():
@@ -189,10 +189,10 @@ def test_02_social():
     for t in range(0, T, 10):
         tact += np.linalg.norm(A[t][:, None] - B[t][None], axis=2) < 1.2
     assert tact.shape == (8, 8) and d.shape == (T,)
-    print("%s nb02 social: poses %s, ego ok, social feats + tactogram ok" % (OK, A.shape))
+    print("%s nb04 social: poses %s, ego ok, social feats + tactogram ok" % (OK, A.shape))
 
 
-for name, fn in [("05", test_05_concept), ("03", test_03_dib), ("04", test_04_opto), ("02", test_02_social)]:
+for name, fn in [("05", test_05_concept), ("02", test_03_dib), ("06", test_04_opto), ("04", test_02_social)]:
     try:
         fn()
     except Exception:

@@ -1,8 +1,5 @@
-"""02 — Social behavior in rats (Klibaite et al. 2025). Individual + dyadic
-embedding, synchrony, social phenotyping, touch. Ugne's track.
-
-Ships a synthetic two-rat 3D generator so the notebook runs end-to-end today;
-swap in a real Klibaite 2025 s-DANNCE subset before the course."""
+"""03 — Transitions & hierarchy (Berman et al. 2016). Python port of Gordon's
+behavioral-transitions tutorial, built on motionmapperpy's demoutils."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from nb_builder import md, code, badge, write_nb
@@ -10,28 +7,21 @@ from nb_builder import md, code, badge, write_nb
 REPO = "bermanlabemory/unsupervised-behavior-tutorials/blob/main"
 cells = []
 
-cells.append(badge("%s/02_social_behavior_rats.ipynb" % REPO))
+cells.append(badge("%s/02_transitions_and_hierarchy.ipynb" % REPO))
 
 cells.append(md(r"""
-# Social behavior in rats &nbsp;·&nbsp; 🟡 medium
+# Transitions & hierarchy
 
-**The question:** two rats are interacting. How do we describe what they do **together** &mdash;
-not just each one on its own? Following Klibaite et al., *Cell* 2025 ("Mapping the landscape of
-social behavior"), we'll:
+**The question:** a behavioral map tells you *what* an animal does. This notebook asks how those
+behaviors are **organized in time**. Is behavior just a roll of the dice from one moment to the
+next (*Markovian*), or is there long memory and structure? We'll find that fly behavior has
+**time scales far longer than any single movement**, and a **hierarchy** of behaviors &mdash;
+following Berman, Bialek & Shaevitz, *PNAS* 2016.
 
-1. map each animal's **individual** behavior, and see how it changes from **alone** to **social**;
-2. build a **dyadic embedding** that treats the *pair* as one system (using inter-animal distance
-   and orientation), giving a map of **joint** behaviors like mutual rearing or inspection;
-3. measure **behavioral synchrony** between partners;
-4. compare a **social phenotype** &mdash; here, control vs amphetamine.
+You don't need to have finished notebook 01 &mdash; this loads its own data: sequences of
+behavioral states for **59 flies, 117 behaviors each**, from one hour of recording apiece.
 
-The 3-D tracking itself (**s-DANNCE**) and the mesh-based touch detection are too heavy for Colab,
-so we work from **pre-tracked 3-D poses** &mdash; exactly the data you'd analyze after tracking.
-
-> **Ugne:** replace the synthetic generator in §2 with a real CTRL+AMPH dyad subset
-> (`USE_SYNTHETIC_DATA = False`). Everything downstream is written to run on real poses unchanged.
-
-**Run time:** ~8-12 min.
+**Run time:** ~10 min.
 """))
 
 # ---------------------------------------------------------------- setup
@@ -57,318 +47,371 @@ _stub("moviepy.video.io.bindings", mplfig_to_npimage=lambda *a, **k: None)
 sys.path.insert(0, os.path.abspath("motionmapperpy"))
 for _m in [k for k in list(sys.modules) if k.startswith("motionmapperpy")]:
     del sys.modules[_m]
-!pip install -q hdf5storage easydict umap-learn 2>/dev/null
+!pip install -q hdf5storage easydict 2>/dev/null
 
 import numpy as np, matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # noqa
-from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans
-import umap
 import motionmapperpy as mmpy
+from motionmapperpy import demoutils
 %matplotlib inline
-rng = np.random.default_rng(0)
 print("ready")
 """))
 
 # ---------------------------------------------------------------- data
-cells.append(md("# 2.&nbsp; Load pre-tracked dyads (8 keypoints, 3-D)"))
+cells.append(md("# 2.&nbsp; Load the behavioral state sequences"))
 cells.append(md(r"""
-Each **session** has two rats, each tracked as 8 3-D keypoints over time
-(snout, head, neck, mid-spine, tail-base, two hips, tail-tip). Some sessions are **lone**
-(one rat), some are **social** (a pair). Half the animals are **CTRL**, half **AMPH**.
+Each fly's behavior is an integer time series: which of the 117 behaviors it was doing at each
+step. We also load the 2-D **region map** (so we can draw results on the behavior space) and the
+behavioral **density**.
+
+This loads the **real 59-fly dataset** (`data/transition_data.mat`, 117 behaviors) straight from
+this tutorial's GitHub repo. If the download fails (e.g. the repo isn't public yet), it falls back
+to a stand-in generator with the same structure &mdash; set `USE_SYNTHETIC_DATA = True` to force that.
 """))
 cells.append(code(r"""
-USE_SYNTHETIC_DATA = True
-DATA_URL = "https://PLACEHOLDER-HOST/klibaite_rat_dyads_subset.npz"   # TODO: real link
+USE_SYNTHETIC_DATA = False      # set True to force the stand-in generator below
+# The real 59-fly transition data ships in this tutorial's repo (data/transition_data.mat).
+DATA_URL = "https://raw.githubusercontent.com/bermanlabemory/unsupervised-behavior-tutorials/main/data/transition_data.mat"
 
-EDGES = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 7), (4, 5), (4, 6)]
-CANON = np.array([[4, 0, 1.0], [3, 0, 1.1], [2, 0, 1.0], [0, 0, 1.0],
-                  [-2, 0, .9], [-1.8, .8, .7], [-1.8, -.8, .7], [-3.5, 0, .6]])
+def load_real():
+    from scipy.io import loadmat
+    if not os.path.exists("transition_data.mat"):
+        !wget -q "$DATA_URL" -O transition_data.mat
+    if not os.path.exists("transition_data.mat") or os.path.getsize("transition_data.mat") < 100000:
+        raise RuntimeError("download failed -- is the repo public yet?")
+    d = loadmat("transition_data.mat")           # v7 .mat -> scipy reads it directly
+    states_list = [np.asarray(s).flatten().astype(int) for s in d["transition_states"].flatten()]
+    return states_list, d["regionMap"], d["density"], d["xx"].flatten(), d["peakPoints"]
 
-def _poses(T, behav, head, center, rear, groom, fps):
-    K = len(CANON); P = np.tile(CANON, (T, 1, 1)).astype(float)
-    front = [0, 1, 2, 3]; lift = np.array([1.0, .8, .5, .2])
-    P[:, front, 2] += rear[:, None] * lift                      # rearing lifts the front up
-    g = (behav == 3)                                            # grooming: fast head wobble
-    P[:, 0, 2] += np.where(g, .6 * np.sin(groom), 0)
-    P[:, 1, 2] += np.where(g, .4 * np.sin(groom), 0)
-    P[:, :, 2] += .1 * np.sin(2 * np.pi * 2 * np.arange(T)[:, None] / fps) * (behav == 1)[:, None]
-    c, s = np.cos(head), np.sin(head)                           # rotate by heading about z
-    x, y = P[:, :, 0].copy(), P[:, :, 1].copy()
-    P[:, :, 0] = x * c[:, None] - y * s[:, None] + center[:, None, 0]
-    P[:, :, 1] = x * s[:, None] + y * c[:, None] + center[:, None, 1]
-    return P
+def make_synthetic(n_flies=12, T=4000, n_super=6, per_super=12, dwell=150, seed=0):
+    # Flies whose behavior is biased by a slowly-switching hidden 'mood'. The slow mood is what
+    # creates long time scales -- exactly the hidden-state structure the 2016 paper infers.
+    rng = np.random.default_rng(seed)
+    N = n_super * per_super
+    super_of = np.repeat(np.arange(n_super), per_super)
+    # 2-D layout: superclusters on a ring, states scattered around their center (so nearby
+    # region numbers = similar behaviors, as in real maps).
+    ang = 2 * np.pi * super_of / n_super
+    centers = np.c_[np.cos(ang), np.sin(ang)] * 6
+    pos = centers + rng.normal(scale=0.8, size=(N, 2))
+    states_list = []
+    for _ in range(n_flies):
+        seq, mood = [], rng.integers(n_super)
+        s = int(np.where(super_of == mood)[0][rng.integers(per_super)])
+        for t in range(T):
+            if rng.random() < 1 / dwell:
+                mood = rng.integers(n_super)            # slow mood switch
+            # prefer states in the current mood's supercluster; sometimes wander
+            w = np.where(super_of == mood, 8.0, 1.0)
+            w[s] = 0                                    # no self-transition (count transitions)
+            w /= w.sum()
+            s = int(rng.choice(N, p=w)); seq.append(s)
+        # emit 1-based state values so state v <-> regionMap region v (matches the real data,
+        # where regionMap==r is behavior r and 0 is background)
+        states_list.append(np.array(seq) + 1)
+    # a density + region map for plotting
+    gx = np.linspace(-9, 9, 200)
+    XX, YY = np.meshgrid(gx, gx)
+    grid = np.c_[XX.ravel(), YY.ravel()]
+    d2 = ((grid[:, None, :] - pos[None]) ** 2).sum(-1)
+    regionMap = (d2.argmin(1) + 1).reshape(XX.shape)
+    density = np.exp(-d2.min(1) / 2).reshape(XX.shape)
+    regionMap[density < 0.05] = 0
+    return states_list, regionMap, density, gx, pos
 
-def _walk(T, fps, amph, seed):
-    r = np.random.default_rng(seed)
-    # behavior Markov chain: idle, locomote, rear, groom (amph -> more locomotion)
-    Tm = np.array([[.6, .2, .1, .1], [.15, .7, .1, .05], [.2, .2, .55, .05], [.2, .15, .05, .6]])
-    if amph: Tm[:, 1] += .15; Tm /= Tm.sum(1, keepdims=True)
-    b = np.zeros(T, int)
-    for t in range(1, T): b[t] = r.choice(4, p=Tm[b[t-1]])
-    head = np.cumsum(r.normal(0, .15, T)) + r.uniform(0, 6)
-    center = np.cumsum(r.normal(0, .25 + .15*amph, (T, 2)), 0)
-    center = np.clip(center, -18, 18)
-    rear = np.clip(np.where(b == 2, 1.0, 0.0) + r.normal(0, .05, T), 0, 1.2)
-    groom = np.cumsum(np.full(T, 2*np.pi*5/fps))
-    return b, head, center, rear, groom
-
-def make_synthetic(fps=30, T=2400, n_lone=3, n_social=5, seed=0):
-    sessions = []
-    sid = 0
-    for group, amph in [("CTRL", 0), ("AMPH", 1)]:
-        for _ in range(n_lone):
-            b, h, c, re, g = _walk(T, fps, amph, seed + sid); sid += 1
-            sessions.append(dict(group=group, kind="lone", fps=fps,
-                                 A=_poses(T, b, h, c, re, g, fps), B=None, engaged=np.zeros(T, bool)))
-        for _ in range(n_social):
-            bA, hA, cA, rA, gA = _walk(T, fps, amph, seed + sid); sid += 1
-            bB, hB, cB, rB, gB = _walk(T, fps, amph, seed + sid); sid += 1
-            r = np.random.default_rng(seed + sid)
-            eng = np.zeros(T, bool); p_on = .02 + .02*amph        # amph -> more engagement
-            for t in range(1, T):
-                eng[t] = r.random() < (.95 if eng[t-1] else p_on) if eng[t-1] else r.random() < p_on
-            for t in np.where(eng)[0]:                            # when engaged: get close + face partner
-                off = r.normal(0, 1.5, 2); cB[t] = cA[t] + off + 3 * off / (np.linalg.norm(off)+1e-6)
-                hA[t] = np.arctan2(*(cB[t]-cA[t])[::-1]); hB[t] = np.arctan2(*(cA[t]-cB[t])[::-1])
-                if r.random() < .3: rA[t] = rB[t] = 1.0          # mutual rearing
-            sessions.append(dict(group=group, kind="social", fps=fps,
-                                 A=_poses(T, bA, hA, cA, rA, gA, fps),
-                                 B=_poses(T, bB, hB, cB, rB, gB, fps), engaged=eng))
-    return sessions
-
+if not USE_SYNTHETIC_DATA:
+    try:
+        states_list, regionMap, density, xx, peakPoints = load_real()
+        print("REAL data: %d flies, %d behaviors" % (len(states_list), int(regionMap.max())))
+    except Exception as e:
+        print("Could not load the real data (%s) -- falling back to synthetic." % e)
+        USE_SYNTHETIC_DATA = True
 if USE_SYNTHETIC_DATA:
-    sessions = make_synthetic()
-else:
-    d = np.load(DATA_URL.split("/")[-1], allow_pickle=True)     # expects same dict structure
-    sessions = list(d["sessions"])
-print("%d sessions (%d social)" % (len(sessions), sum(s["kind"] == "social" for s in sessions)))
+    states_list, regionMap, density, xx, peakPoints = make_synthetic()
+    print("SYNTHETIC data:", len(states_list), "flies,", int(max(s.max() for s in states_list)), "states")
 """))
-
-cells.append(md("## 2.1&nbsp; Look at a pair (always look first!)"))
+cells.append(md("The region map &mdash; note that nearby region numbers tend to be similar behaviors:"))
 cells.append(code(r"""
-sess = next(s for s in sessions if s["kind"] == "social")
-t = int(np.where(sess["engaged"])[0][len(np.where(sess["engaged"])[0])//2])  # an engaged moment
-fig = plt.figure(figsize=(6, 6)); ax = fig.add_subplot(111, projection="3d")
-for P, col in [(sess["A"], "firebrick"), (sess["B"], "royalblue")]:
-    pts = P[t]
-    ax.scatter(*pts.T, color=col, s=20)
-    for i, j in EDGES: ax.plot(*pts[[i, j]].T, color=col, lw=1.5)
-ax.set_title("two rats, engaged (frame %d)" % t); ax.set_zlim(0, 6)
-ax.view_init(elev=20, azim=-60); plt.show()
+fig, ax = plt.subplots(figsize=(5, 5))
+ax.imshow(regionMap, cmap="tab20", origin="lower"); ax.axis("equal"); ax.axis("off")
+ax.set_title("behavioral regions (colored by region number)"); plt.show()
 """))
 
-# ---------------------------------------------------------------- individual
-cells.append(md("# 3.&nbsp; Individual behavior: alone vs in company"))
+# ---------------------------------------------------------------- T(1)
+cells.append(md("# 3.&nbsp; The one-step transition matrix"))
 cells.append(md(r"""
-First, each animal on its own &mdash; the *same* engine as notebook 01, just compressed: egocenter
-the pose (remove where the animal is and which way it faces), take wavelets of the postural
-dynamics, reduce, and embed. Then we ask: does an animal behave **differently when a partner is
-present**?
+$T(\tau)_{ij}=P(S(n+\tau)=i \mid S(n)=j)$ is the probability of being in behavior $i$ a time
+$\tau$ later, given behavior $j$ now. Start with $\tau=1$. We pool all flies. (We use
+`getTransitions` to count *transitions* between distinct behaviors, as in the paper.)
 """))
 cells.append(code(r"""
-def egocenter(P):                       # P:(T,K,3) -> egocentric (tail-base at origin, snout +x)
-    Q = P - P[:, 4:5, :]
-    th = np.arctan2(Q[:, 0, 1], Q[:, 0, 0])
-    c, s = np.cos(-th), np.sin(-th)
-    x, y = Q[:, :, 0].copy(), Q[:, :, 1].copy()
-    Q[:, :, 0], Q[:, :, 1] = x*c[:, None]-y*s[:, None], x*s[:, None]+y*c[:, None]
-    return Q.reshape(len(P), -1)        # (T, 24)
+states = np.concatenate([demoutils.getTransitions(s) for s in states_list])
+T1 = demoutils.makeTransitionMatrix(states, 1)
 
-def wavelet_amps(stream, fps):                       # log wavelet amplitudes for one animal stream
-    w, _ = mmpy.findWavelets(stream, stream.shape[1], 5, 20, fps, 10.0, 0.5, -1, -1)
-    return np.log(w + 1e-3)
-
-# collect each animal stream, tagged lone/social and by group
-streams, tags = [], []
-for s in sessions:
-    for who in ["A", "B"]:
-        if s[who] is None: continue
-        streams.append(egocenter(s[who])); tags.append((s["group"], s["kind"]))
-amps = [wavelet_amps(st, 30) for st in streams]
-PCA_W = PCA(6).fit(np.vstack(amps))                  # ONE shared feature basis for every map below
-W = [PCA_W.transform(a) for a in amps]
-allW = np.vstack(W)
-sub = rng.choice(len(allW), min(8000, len(allW)), replace=False)
-ireducer = umap.UMAP(n_neighbors=30, min_dist=0.1, random_state=0).fit(allW[sub])
-emb = [ireducer.transform(w) for w in W]
-print("individual maps built for %d animal-streams" % len(W))
+fig, ax = plt.subplots(figsize=(6, 5))
+im = ax.imshow(T1, cmap="PuRd", vmax=np.percentile(T1, 99))
+ax.set_xlabel("behavior now  (j)"); ax.set_ylabel("behavior next  (i)")
+ax.set_title("T(1)"); plt.colorbar(im, fraction=0.046); plt.show()
 """))
-cells.append(code(r"""
-allemb = np.vstack(emb); R = np.abs(allemb).max() + 2
-def dens(e): return mmpy.findPointDensity(e, 1.0, 101, [-R, R])[2]
-lone = np.vstack([e for e, t in zip(emb, tags) if t[1] == "lone"])
-soc  = np.vstack([e for e, t in zip(emb, tags) if t[1] == "social"])
-
-fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-for a, (e, t) in zip(ax, [(lone, "alone"), (soc, "social"), (None, "social - alone")]):
-    if e is not None:
-        a.imshow(dens(e), extent=(-R, R, -R, R), origin="lower", cmap=mmpy.gencmap()); a.set_title(t)
-    else:
-        d = dens(soc) - dens(lone); v = np.abs(d).max()
-        im = a.imshow(d, extent=(-R, R, -R, R), origin="lower", cmap="RdBu_r", vmin=-v, vmax=v)
-        a.set_title(t); plt.colorbar(im, ax=a, fraction=0.046)
-    a.axis("off")
-plt.suptitle("individual behavior shifts when a partner is present"); plt.show()
-"""))
-
-# ---------------------------------------------------------------- inter-animal
-cells.append(md("# 4.&nbsp; The social variables: distance and orientation"))
 cells.append(md(r"""
-What makes behavior *social* is the relationship **between** the animals. The two simplest,
-most informative variables (Klibaite 2025, Fig 4B) are the **inter-animal distance** and the
-**relative orientation** &mdash; is one animal facing the other?
-"""))
-cells.append(code(r"""
-def social_features(A, B):
-    cA, cB = A[:, 4, :2], B[:, 4, :2]          # tail-base xy as body position
-    d = np.linalg.norm(cA - cB, axis=1)
-    headA = np.arctan2(*(A[:, 0, :2] - A[:, 4, :2]).T[::-1])
-    to_B = np.arctan2(*(cB - cA).T[::-1])
-    rel = np.arctan2(np.sin(to_B - headA), np.cos(to_B - headA))   # 0 = A faces B
-    return d, rel
-
-s = next(s for s in sessions if s["kind"] == "social")
-d, rel = social_features(s["A"], s["B"])
-fig, ax = plt.subplots(2, 1, figsize=(13, 4), sharex=True)
-ax[0].plot(d, "k"); ax[0].fill_between(np.arange(len(d)), 0, d.max(), where=s["engaged"], color="orange", alpha=.2)
-ax[0].set_ylabel("distance"); ax[1].plot(np.abs(rel), "purple"); ax[1].set_ylabel("|facing angle|")
-ax[1].set_xlabel("frame"); ax[0].set_title("inter-animal distance & orientation (orange = engaged)"); plt.show()
+**Does it look random?** No &mdash; there's block structure along the diagonal. Because nearby
+region numbers are similar behaviors, this says the fly mostly transitions *between similar
+behaviors* (grooming → grooming, one gait → a neighboring gait). Behavior is locally smooth.
 """))
 
-# ---------------------------------------------------------------- dyadic
-cells.append(md("# 5.&nbsp; The dyadic embedding: the pair as one system"))
+# ---------------------------------------------------------------- lags + Markov
+cells.append(md("# 4.&nbsp; Longer lags: is behavior Markovian?"))
 cells.append(md(r"""
-Now the key step. We build **one** feature vector per moment that contains *both* animals' postural
-dynamics **plus** the social variables, and embed *that*. Each point on this map is a **joint
-behavior** of the pair &mdash; "both rearing, facing", "one inspecting the other from behind", and
-so on.
+If behavior were **Markovian** (no memory), the only thing that matters is the current state, and
+the $\tau$-step matrix would just be the one-step matrix raised to the power $\tau$:
+$T_\text{Markov}(\tau)=T(1)^\tau$. Let's compare the *real* $T(\tau)$ to that prediction.
 """))
 cells.append(code(r"""
-def dyadic_features(s):
-    wA = PCA_W.transform(wavelet_amps(egocenter(s["A"]), s["fps"]))
-    wB = PCA_W.transform(wavelet_amps(egocenter(s["B"]), s["fps"]))
-    d, rel = social_features(s["A"], s["B"])
-    soc = np.c_[np.exp(-d / 10), np.cos(rel), np.sin(rel)] * 3        # scaled social channels
-    return np.c_[wA, wB, soc]
-
-social_sessions = [s for s in sessions if s["kind"] == "social"]
-F = [dyadic_features(s) for s in social_sessions]
-allF = np.vstack(F)
-sub = rng.choice(len(allF), min(8000, len(allF)), replace=False)
-dreducer = umap.UMAP(n_neighbors=30, min_dist=0.1, random_state=1).fit(allF[sub])
-demb = [dreducer.transform(f) for f in F]
-Rd = np.abs(np.vstack(demb)).max() + 2
-
-fig, ax = plt.subplots(figsize=(5.5, 5))
-ax.imshow(mmpy.findPointDensity(np.vstack(demb), 1.0, 101, [-Rd, Rd])[2],
-          extent=(-Rd, Rd, -Rd, Rd), origin="lower", cmap=mmpy.gencmap())
-ax.set_title("joint (dyadic) behavior map"); ax.axis("off"); plt.show()
+lags = [1, 10, 100, 1000]
+fig, axes = plt.subplots(2, len(lags), figsize=(15, 7))
+for k, L in enumerate(lags):
+    Tdata = demoutils.makeTransitionMatrix(states, L)
+    Tmark = np.linalg.matrix_power(T1, L)
+    for row, (M, lab) in enumerate([(Tdata, "data"), (Tmark, "Markov  T(1)^%d" % L)]):
+        axes[row, k].imshow(M, cmap="PuRd", vmax=np.percentile(Tdata, 99))
+        axes[row, k].set_xticks([]); axes[row, k].set_yticks([])
+        axes[row, k].set_title(r"$\tau$=%d  (%s)" % (L, lab), fontsize=9)
+plt.tight_layout(); plt.show()
 """))
-cells.append(md("Carve the joint map into joint-behavior classes (KMeans here; watershed in the full pipeline):"))
-cells.append(code(r"""
-NJ = 8
-joint_km = KMeans(NJ, n_init=10, random_state=0).fit(np.vstack(demb))
-jlabels = [joint_km.predict(e) for e in demb]
-fig, ax = plt.subplots(figsize=(5.5, 5))
-sc = ax.scatter(np.vstack(demb)[:, 0], np.vstack(demb)[:, 1], c=np.concatenate(jlabels), s=2, cmap="tab10")
-ax.set_title("%d joint-behavior classes" % NJ); ax.axis("off"); plt.show()
-print("In the real pipeline you'd now make region videos of each joint class to name them",
-      "(mutual rear, inspect-from-behind, ...).")
-"""))
-
-# ---------------------------------------------------------------- synchrony
-cells.append(md("# 6.&nbsp; Behavioral synchrony"))
 cells.append(md(r"""
-Are the partners' behaviors **coordinated**? We give each animal a coarse individual label and ask,
-for each pair of labels, whether the two animals are in those states *together* more (or less) than
-chance &mdash; the **partial mutual information** structure of Klibaite 2025 (Fig 3F).
+The Markov prediction (bottom) washes out into vertical stripes &mdash; it forgets where it
+started. The real data (top) **keeps structure far longer**. The fly remembers.
+"""))
+
+# ---------------------------------------------------------------- eigenvalues
+cells.append(md("# 5.&nbsp; Measuring the time scales: eigenvalues"))
+cells.append(md(r"""
+A clean way to read the longest time scale of $T(\tau)$ is its **second eigenvalue** $|\lambda_2|$
+(the first is always 1). Closer to 1 = longer-lived structure. If behavior were Markovian, the
+eigenvalues would decay as $|\lambda_2(\tau)| = |\lambda_2(1)|^\tau$ (red below). Let's see what
+the data does (blue).
 """))
 cells.append(code(r"""
-NI = 6
-ikm = KMeans(NI, n_init=10, random_state=0).fit(allW[sub])
-def labels_of(P): return ikm.predict(PCA_W.transform(wavelet_amps(egocenter(P), 30)))
+def lam(M, k):  # k-th largest eigenvalue magnitude
+    return np.sort(np.abs(np.linalg.eigvals(M)))[::-1][k - 1]
 
-co = np.zeros((NI, NI))
-for s in social_sessions:
-    la, lb = labels_of(s["A"]), labels_of(s["B"])
-    for a, b in zip(la, lb): co[a, b] += 1
-P = co / co.sum()
-exp = P.sum(1, keepdims=True) @ P.sum(0, keepdims=True)
-enrich = np.log2((P + 1e-9) / (exp + 1e-9))            # >0 = co-occur above chance
+taus = np.unique(np.r_[np.arange(1, 20), np.arange(20, 200, 5), np.arange(200, 1001, 50)])
+data2  = [lam(demoutils.makeTransitionMatrix(states, L), 2) for L in taus]
+markov2 = [lam(np.linalg.matrix_power(T1, L), 2) for L in taus]
 
-fig, ax = plt.subplots(figsize=(5.5, 5))
-v = np.abs(enrich).max()
-im = ax.imshow(enrich, cmap="RdBu_r", vmin=-v, vmax=v)
-ax.set_xlabel("rat B behavior"); ax.set_ylabel("rat A behavior")
-ax.set_title("synchrony: log2(observed / chance) co-occurrence"); plt.colorbar(im, fraction=0.046); plt.show()
+# null floor: shuffle the sequence to destroy temporal order
+shuf = demoutils.doTheShannonShuffle(states)
+null2 = [lam(demoutils.makeTransitionMatrix(shuf, L), 2) for L in taus]
+
+fig, ax = plt.subplots(figsize=(8, 5))
+ax.semilogx(taus, data2, "b.-", label=r"data  $|\lambda_2|$")
+ax.semilogx(taus, markov2, "r--", label=r"Markov prediction $|\lambda_2(1)|^\tau$")
+ax.semilogx(taus, null2, color="grey", ls=":", label="shuffled (null)")
+ax.set_xlabel(r"lag $\tau$ (# transitions)"); ax.set_ylabel(r"$|\lambda_2|$")
+ax.legend(); ax.set_title("behavior carries memory far beyond the Markov prediction"); plt.show()
 """))
-cells.append(md("The bright diagonal (if present) means partners tend to do the **same** thing at the same time &mdash; synchronized rearing, synchronized locomotion."))
-
-# ---------------------------------------------------------------- phenotype
-cells.append(md("# 7.&nbsp; A social phenotype: CTRL vs AMPH"))
 cells.append(md(r"""
-Finally, the payoff: does a manipulation change social behavior? We summarize each session by **how
-often it visits each joint-behavior class** (its occupancy fingerprint) and compare groups.
+The blue curve sits **far above** the red Markov prediction: there are time scales of hundreds of
+transitions, *orders of magnitude* longer than any single movement (which lasts a handful of
+frames). Where do they come from? The animal must have **hidden internal states** &mdash; things
+we don't measure (hunger, arousal, ...) &mdash; that persist and bias behavior over long times.
+
+> 🔧 **Your turn:** rerun §5 using `lam(..., 3)` and `lam(..., 4)` (the 3rd and 4th eigenvalues).
+> Multiple slow modes, multiple time scales.
+"""))
+
+# ---------------------------------------------------------------- hierarchy / DIB
+cells.append(md("# 6.&nbsp; A hierarchy of behaviors: the deterministic information bottleneck"))
+cells.append(md(r"""
+§5 told us behavior carries memory far longer than any single movement &mdash; but *where in the
+repertoire* does that structure live? Here we coarse-grain the 117 behaviors into a few
+**clusters**, keeping the grouping that best predicts what the fly does **next**. This is the
+**information bottleneck** (Tishby, Pereira & Bialek 1999); we use the **deterministic** variant
+(DIB; Strouse & Schwab 2017), which is exactly the method Berman, Bialek & Shaevitz (2016) used to
+pull out the fly's behavioral hierarchy.
+
+Summarize the current behavior $X$ by a cluster label $T$, then score that summary by how much it
+tells us about the future behavior $Y$. Two quantities pull against each other:
+
+- $H[T]$ &mdash; the **size** of the summary (bits to name the cluster). Smaller = more compressed.
+- $I[Y;T]$ &mdash; how much the summary **predicts the future**. Larger = more useful.
+
+One knob $\beta$ trades them off: we minimize $H[T]-\beta\,I[Y;T]$. Sweep $\beta$ and the number of
+clusters and you trace a **Pareto front** &mdash; the most prediction achievable at each level of
+compression. Each point on that front is one level of the hierarchy.
+"""))
+cells.append(md(r"""
+**The DIB algorithm** is a hard-clustering loop. Fix a number of clusters $K$ and a trade-off
+$\beta$, start from a random assignment of behaviors to clusters, then repeat to convergence:
+
+1. each cluster's **predictive signature** is $p(Y\mid T)$ &mdash; the future-behavior distribution
+   averaged over its members;
+2. **reassign** every behavior $x$ to the cluster whose signature best matches its own future,
+   $\;f(x)=\arg\max_t\,\big[\log p(t)-\beta\,D_\mathrm{KL}(p(Y\mid x)\,\|\,p(Y\mid t))\big].$
+
+This is a direct port of the MATLAB `deterministicInformationBottleneck` / `run_DIB` from Gordon's
+behavioral-transitions tutorial.
 """))
 cells.append(code(r"""
-occ, grp = [], []
-for s, lab in zip(social_sessions, jlabels):
-    h = np.bincount(lab, minlength=NJ).astype(float); occ.append(h / h.sum()); grp.append(s["group"])
-occ = np.array(occ); grp = np.array(grp)
+def _safe_log2(A):
+    out = np.zeros_like(A, dtype=float)              # define log2(0):=0  (so 0*log0 -> 0)
+    np.log2(A, out=out, where=A > 0)
+    return out
 
-fig, ax = plt.subplots(1, 2, figsize=(13, 4.5))
-fold = np.log2((occ[grp == "AMPH"].mean(0) + 1e-3) / (occ[grp == "CTRL"].mean(0) + 1e-3))
-ax[0].bar(range(NJ), fold, color=["firebrick" if f > 0 else "royalblue" for f in fold])
-ax[0].axhline(0, color="k", lw=.5); ax[0].set_xlabel("joint-behavior class")
-ax[0].set_ylabel("log2 fold change (AMPH / CTRL)"); ax[0].set_title("which joint behaviors change?")
+def dib_single(pXY, pX, pY_X, Hx, K, beta, rng, tol=1e-6, max_iter=200):
+    # One DIB run at fixed (K, beta). pXY = p(current, future); pX, pY_X, Hx are precomputed once
+    # (they don't change across runs). Returns (assignment f, I[Y;T], H[T]).
+    Nx, Ny = pXY.shape
+    f = rng.integers(0, K, size=Nx)                  # random hard assignment behavior -> cluster
 
-pc = PCA(2).fit_transform(occ)
-for g, c in [("CTRL", "royalblue"), ("AMPH", "firebrick")]:
-    ax[1].scatter(*pc[grp == g].T, color=c, label=g, s=60)
-ax[1].set_xlabel("PC1"); ax[1].set_ylabel("PC2"); ax[1].legend()
-ax[1].set_title("each dot = a session, in joint-repertoire space"); plt.show()
+    def cluster_stats(f):
+        onehot = np.zeros((Nx, K)); onehot[np.arange(Nx), f] = 1.0
+        pT = onehot.T @ pX                           # p(T): cluster occupancy
+        pYT = onehot.T @ pXY                          # unnormalized p(future, T)
+        pY_T = np.divide(pYT, pT[:, None], out=np.zeros_like(pYT), where=pT[:, None] > 0)
+        return pT, pY_T                              # p(future | T): each cluster's signature
+
+    def cost(pT, pY_T):
+        idx = pT > 0
+        H_T = -np.sum(pT[idx] * np.log2(pT[idx]))    # H[T]  (compression)
+        pYT = pY_T * pT[:, None]; pY = pYT.sum(0)
+        denom = pT[:, None] * pY[None, :]
+        ratio = np.divide(pYT, denom, out=np.zeros_like(pYT), where=denom > 0)
+        I_YT = (pYT * _safe_log2(ratio)).sum()       # I[Y;T]  (prediction)
+        return H_T, I_YT
+
+    pT, pY_T = cluster_stats(f)
+    H_T, I_YT = cost(pT, pY_T)
+    prev = H_T - beta * I_YT
+    for _ in range(max_iter):
+        DKL = (-pY_X @ _safe_log2(pY_T).T) - Hx[:, None]      # D_KL(p(Y|x) || p(Y|t)), (Nx, K)
+        logpT = np.where(pT > 0, _safe_log2(pT), -np.inf)
+        f = np.argmax(logpT[None, :] - beta * DKL, axis=1)    # reassign every behavior
+        pT, pY_T = cluster_stats(f)
+        H_T, I_YT = cost(pT, pY_T)
+        J = H_T - beta * I_YT                                  # the DIB objective
+        if abs(J - prev) < tol:
+            break
+        prev = J
+    used = np.unique(f)
+    return np.searchsorted(used, f), I_YT, H_T        # drop empty clusters, relabel 0..k-1
 """))
-
-# ---------------------------------------------------------------- touch (optional)
-cells.append(md("# 8.&nbsp; (Optional) Social touch from keypoint proximity"))
 cells.append(md(r"""
-The paper fits a full body **mesh** to detect touch; that's too heavy here, but we can approximate
-contact as **keypoints of the two animals coming very close**, and bin it by body region to make a
-simple **tactogram** (Klibaite 2025, Fig 6).
+One DIB run finds *a* clustering. To map out the whole trade-off we do many runs from random
+starts, each with a random number of clusters $K$ and random $\beta$, and keep the **Pareto-optimal**
+ones (you can't predict more without spending more bits). It's a Monte-Carlo search &mdash; more
+restarts give a smoother front; ~600 takes a few seconds.
 """))
 cells.append(code(r"""
-REGION = ["snout", "head", "neck", "spine", "tail-base", "hipL", "hipR", "tail"]
-THRESH = 1.2
-tact = np.zeros((8, 8))
-for s in social_sessions:
-    for t in range(0, len(s["A"]), 3):
-        D = np.linalg.norm(s["A"][t][:, None] - s["B"][t][None], axis=2)  # (8,8) keypoint distances
-        tact += D < THRESH
-fig, ax = plt.subplots(figsize=(5.5, 5))
-im = ax.imshow(np.log1p(tact), cmap="magma")
-ax.set_xticks(range(8)); ax.set_xticklabels(REGION, rotation=90)
-ax.set_yticks(range(8)); ax.set_yticklabels(REGION)
-ax.set_xlabel("rat B"); ax.set_ylabel("rat A"); ax.set_title("tactogram: where do they touch?")
-plt.colorbar(im, fraction=0.046); plt.show()
+def build_joint(trans_list, state_vals, lag):
+    # p(current, future) at this lag, counted *within* each fly only (no cross-fly transitions).
+    n = len(state_vals)
+    F = np.zeros((n, n))
+    for s in trans_list:
+        s = np.searchsorted(state_vals, s)            # state value -> 0..n-1 index
+        if len(s) > lag:
+            np.add.at(F, (s[:-lag], s[lag:]), 1.0)
+    return F
+
+def pareto_front(pts):
+    # rows not strictly dominated in *every* column (here: higher I[Y;T] AND lower H[T])
+    keep = np.ones(len(pts), bool)
+    for i in range(len(pts)):
+        keep[i] = not np.any(np.all(pts > pts[i], axis=1))
+    return keep
+
+def run_dib(trans_list, state_vals, lag, n_restarts=600, min_clusters=2, max_clusters=30,
+            min_log_beta=-1, max_log_beta=4, seed=0):
+    rng = np.random.default_rng(seed)
+    pXY = build_joint(trans_list, state_vals, lag); pXY = pXY / pXY.sum()
+    pX = pXY.sum(1)                                                  # p(current behavior)
+    pY_X = np.divide(pXY, pX[:, None], out=np.zeros_like(pXY), where=pX[:, None] > 0)
+    Hx = -np.sum(pY_X * _safe_log2(pY_X), axis=1)                   # entropy of each p(Y|x), reused
+    HT = np.zeros(n_restarts); IYT = np.zeros(n_restarts); ncl = np.zeros(n_restarts, int)
+    clus = [None] * n_restarts
+    for i in range(n_restarts):
+        beta = 10.0 ** (min_log_beta + (max_log_beta - min_log_beta) * rng.random())
+        K = int(rng.integers(min_clusters, max_clusters + 1))
+        clus[i], IYT[i], HT[i] = dib_single(pXY, pX, pY_X, Hx, K, beta, rng)
+        ncl[i] = len(np.unique(clus[i]))
+    on = pareto_front(np.c_[-HT, IYT])                              # Pareto-optimal trade-offs
+    best = {}                                                       # per cluster-count, the max-I[Y;T] solution
+    for j in np.where(on)[0]:
+        if ncl[j] not in best or IYT[j] > IYT[best[ncl[j]]]:
+            best[ncl[j]] = j
+    chosen = [best[k] for k in sorted(best)]
+    return dict(HT=HT, IYT=IYT, ncl=ncl, on=on, chosen=chosen, clus=clus)
+
+trans_list = [demoutils.getTransitions(s) for s in states_list]   # per-fly transition sequences
+state_vals = np.unique(np.concatenate(trans_list))                # behaviors that actually occur
+print("%d behaviors, %d transitions pooled over %d flies"
+      % (len(state_vals), sum(len(t) for t in trans_list), len(trans_list)))
+
+dib = run_dib(trans_list, state_vals, lag=5, n_restarts=600, seed=0)
+print("Pareto front: %d optimal clusterings; cluster counts %s"
+      % (len(dib["chosen"]), [int(dib["ncl"][j]) for j in dib["chosen"]]))
+"""))
+cells.append(md("The trade-off curve. Each red point is an optimal clustering; grey points are runs it beats. Labels mark the number of clusters."))
+cells.append(code(r"""
+fig, ax = plt.subplots(figsize=(6.5, 5))
+off = ~dib["on"]
+ax.plot(dib["HT"][off], dib["IYT"][off], "x", color="0.7", ms=4, label="sub-optimal runs")
+front = sorted(np.where(dib["on"])[0], key=lambda j: dib["HT"][j])
+ax.plot(dib["HT"][front], dib["IYT"][front], "s-", color="crimson", ms=4, label="Pareto front")
+for j in dib["chosen"]:
+    if dib["ncl"][j] <= 8:
+        ax.annotate(str(int(dib["ncl"][j])), (dib["HT"][j], dib["IYT"][j]),
+                    textcoords="offset points", xytext=(5, -10), fontsize=9, color="crimson")
+ax.set_xlabel(r"$H[T]$  (bits to name the cluster)  $\to$  more compression")
+ax.set_ylabel(r"$I[Y;T]$  (bits about the future)  $\to$  more prediction")
+ax.legend(loc="lower right"); ax.set_title("DIB trade-off: prediction vs. compression (lag = 5)")
+plt.show()
+"""))
+cells.append(md(r"""
+The curve climbs steeply, then saturates: the **first few clusters buy almost all the predictive
+information**, and past a handful you pay more and more bits of $H[T]$ for less and less $I[Y;T]$.
+Those first, cheap splits are the coarse behavioral categories &mdash; the top of the hierarchy.
+"""))
+cells.append(md("Now draw the optimal clusterings themselves on the behavior map &mdash; one panel per labelled point on the front, coarse to fine:"))
+cells.append(code(r"""
+def partition_image(f, state_vals):
+    img = np.full(regionMap.shape, np.nan)            # NaN = background / watershed boundaries
+    for i, v in enumerate(state_vals):
+        img[regionMap == v] = f[i]                    # color region v by its cluster (state v <-> region v)
+    return img
+
+levels = [j for j in dib["chosen"] if 2 <= dib["ncl"][j] <= 7]
+fig, axes = plt.subplots(1, len(levels), figsize=(3.1 * len(levels), 3.7))
+for ax, j in zip(np.atleast_1d(axes), levels):
+    ax.imshow(partition_image(dib["clus"][j], state_vals), cmap="tab10",
+              origin="lower", interpolation="nearest")
+    ax.axis("off")
+    ax.set_title("%d clusters\nH[T]=%.2f  I[Y;T]=%.2f"
+                 % (dib["ncl"][j], dib["HT"][j], dib["IYT"][j]), fontsize=10)
+fig.suptitle("levels of the behavioral hierarchy (DIB partitions)", fontsize=12)
+fig.tight_layout(rect=[0, 0, 1, 0.85]); plt.show()
+"""))
+cells.append(md(r"""
+Two things to notice. The clusters are **spatially contiguous** &mdash; each is a connected
+territory on the map, even though the DIB never sees the 2-D layout: it groups behaviors purely by
+*shared future*. And the levels are **approximately nested** &mdash; more clusters mostly
+*subdivide* existing ones rather than reshuffling. That nesting **is** the hierarchy: coarse
+categories (idle / groom / locomote) splitting into finer and finer actions, recovered from
+temporal statistics alone. Fly behavior is organized like a tree.
 """))
 
-# ---------------------------------------------------------------- exercises
+# ---------------------------------------------------------------- bridge
 cells.append(md(r"""
-# 9.&nbsp; 🔧 Your turn / where next
+# 7.&nbsp; Where next
 
-1. In `make_synthetic`, raise the AMPH engagement rate (`p_on = .02 + .05*amph`). Does the §7
-   phenotype get clearer? Which joint classes move?
-2. Swap the synchrony coarse labels (§6) for finer ones (`NI = 10`). Does structure sharpen or
-   wash out?
-3. Add the **third** social channel that matters for touch: which *body parts* are in contact
-   (you already have it in §8) &mdash; does it separate CTRL from AMPH?
-4. **Ugne:** wire in the real CTRL+AMPH dyads (`USE_SYNTHETIC_DATA = False`) and, for the keen,
-   the ASD model lines.
+Those slow eigenvalues you found in §5 are exactly the spectrum of a *transfer operator*. There's
+a principled, modern way to pull the **slow collective modes** straight out of them &mdash; that's
+notebook **`05_slow_modes.ipynb`** (and it's what Greg Stephens will go deeper on tomorrow).
 
-The slow-modes idea from `05_slow_modes.ipynb` is a natural extension here too: is there a *slow
-drift* in how engaged a pair is over a session?
+🔧 **Your turn:** re-run with `dib = run_dib(trans_list, state_vals, lag=50)` to compress for the
+*distant* future, then redraw the two plots above. Do you get *coarser* groups &mdash; fewer cheap
+splits on the front &mdash; than predicting the near future? Then try widening the search with
+`max_clusters=40` or `n_restarts=2000` for a cleaner front.
 """))
 
 write_nb(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                      "02_social_behavior_rats.ipynb"), cells)
+                      "02_transitions_and_hierarchy.ipynb"), cells)

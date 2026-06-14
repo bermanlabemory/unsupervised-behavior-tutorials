@@ -11,16 +11,16 @@ cells = []
 cells.append(badge("%s/05_slow_modes.ipynb" % REPO))
 
 cells.append(md(r"""
-# Slow modes & metastable states &nbsp;·&nbsp; 🔴 hard (and worth it)
+# Slow modes & metastable states
 
-**The question:** notebook 03 showed behavior has time scales *far* longer than any single movement
+**The question:** notebook 02 showed behavior has time scales *far* longer than any single movement
 &mdash; evidence of **hidden internal states** (hunger, arousal, ...) that we never measure but that
 bias what the animal does. Can we **pull those slow states out of the data**?
 
 Following Kaur, Jain & Berman 2026 ("Using timescale as a state coordinate"), the trick is to build
 the state space in the **time-frequency (wavelet) domain**, so fast movements and slow modulations
 are visible *at the same time*. The slow modes then fall out of the **transfer operator's** spectrum
-&mdash; the same eigenvalues you met in notebook 03.
+&mdash; the same eigenvalues you met in notebook 02.
 
 We'll (1) prove the core idea on a toy signal where we *know* the hidden variable, then (2) look at
 the **real published results** &mdash; worms and flies &mdash; loaded from the `slowmode` repo. This

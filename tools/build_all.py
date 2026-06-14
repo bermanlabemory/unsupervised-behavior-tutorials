@@ -10,6 +10,6 @@ import os
 import runpy
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-for nb in ["nb_00", "nb_01", "nb_02", "nb_03", "nb_04", "nb_05", "nb_06"]:
+for nb in ["nb_00", "nb_01", "nb_02", "nb_03", "nb_04", "nb_05", "nb_06", "nb_07"]:
     runpy.run_path(os.path.join(HERE, nb + ".py"), run_name="__main__")
 print("\nall notebooks rebuilt.")
