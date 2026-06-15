@@ -55,7 +55,11 @@ for _m in [k for k in list(sys.modules) if k.startswith("motionmapperpy")]:
 # slowmode: the real pipeline + cached results for the worm & fly figures.
 if not os.path.exists("slowmode"):
     !git clone -q https://github.com/bermanlabemory/slowmode
-!pip install -q pygpcca powerlaw umap-learn easydict 2>/dev/null
+# motionmapperpy's load-time deps (hdf5storage is imported in mmutils) -- the live wavelet demo needs these.
+!pip install -q hdf5storage easydict umap-learn 2>/dev/null
+# Extras for the linked slowmode notebooks; optional here (the figures below just load cached .npz),
+# so install them on their own line -- a failure here must not block the import above.
+!pip install -q pygpcca powerlaw 2>/dev/null
 
 import numpy as np, matplotlib.pyplot as plt
 import motionmapperpy as mmpy
