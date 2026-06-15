@@ -294,8 +294,12 @@ def dib_single(pXY, pX, pY_X, Hx, K, beta, rng, tol=1e-6, max_iter=200):
 cells.append(md(r"""
 One DIB run finds *a* clustering. To map out the whole trade-off we do many runs from random
 starts, each with a random number of clusters $K$ and random $\beta$, and keep the **Pareto-optimal**
-ones (you can't predict more without spending more bits). It's a Monte-Carlo search &mdash; more
-restarts give a smoother front. **Time taken:** ~10 s for the 600 runs below.
+ones (you can't predict more without spending more bits). It's a Monte-Carlo search, and more restarts
+give a smoother front. Since the restarts are independent, we run a generous **10,000** of them in
+parallel across whatever CPU cores the runtime has. If parallelism isn't available (`joblib` missing, or
+only one core), `run_dib` quietly drops to **1,000** serial restarts &mdash; a coarser but perfectly
+usable front that still finishes quickly. **Time taken:** tens of seconds for the parallel 10,000;
+~2&ndash;3 s for the 1,000-restart fallback.
 """))
 cells.append(code(r"""
 def build_joint(trans_list, state_vals, lag):
@@ -315,36 +319,61 @@ def pareto_front(pts):
         keep[i] = not np.any(np.all(pts > pts[i], axis=1))
     return keep
 
-def run_dib(trans_list, state_vals, lag, n_restarts=600, min_clusters=2, max_clusters=30,
-            min_log_beta=-1, max_log_beta=4, seed=0):
-    rng = np.random.default_rng(seed)
+def run_dib(trans_list, state_vals, lag, n_restarts=None, min_clusters=2, max_clusters=30,
+            min_log_beta=-1, max_log_beta=4, seed=0, n_jobs=-1):
+    # Precompute the joint distribution and the per-state quantities ONCE -- every restart reuses them.
     pXY = build_joint(trans_list, state_vals, lag); pXY = pXY / pXY.sum()
     pX = pXY.sum(1)                                                  # p(current behavior)
     pY_X = np.divide(pXY, pX[:, None], out=np.zeros_like(pXY), where=pX[:, None] > 0)
     Hx = -np.sum(pY_X * _safe_log2(pY_X), axis=1)                   # entropy of each p(Y|x), reused
-    HT = np.zeros(n_restarts); IYT = np.zeros(n_restarts); ncl = np.zeros(n_restarts, int)
-    clus = [None] * n_restarts
-    for i in range(n_restarts):
+
+    # The restarts are independent, so we run them in parallel across CPU cores when we can. That lets us
+    # afford a generous, front-smoothing 10,000 restarts by default; if joblib (or a second core) isn't
+    # available we fall back to 1,000 serial restarts so the cell still finishes quickly.
+    try:
+        from joblib import Parallel, delayed, effective_n_jobs      # ships with scikit-learn on Colab
+        parallel = effective_n_jobs(n_jobs) > 1
+    except Exception:                                               # no joblib -> serial
+        parallel = False
+    if n_restarts is None:
+        n_restarts = 10000 if parallel else 1000
+
+    # Each restart gets its own reproducible random stream (SeedSequence.spawn), so the result doesn't
+    # depend on how many cores we happened to use.
+    seeds = np.random.SeedSequence(seed).spawn(n_restarts)
+    def one_restart(ss):
+        rng = np.random.default_rng(ss)
         beta = 10.0 ** (min_log_beta + (max_log_beta - min_log_beta) * rng.random())
         K = int(rng.integers(min_clusters, max_clusters + 1))
-        clus[i], IYT[i], HT[i] = dib_single(pXY, pX, pY_X, Hx, K, beta, rng)
-        ncl[i] = len(np.unique(clus[i]))
+        return dib_single(pXY, pX, pY_X, Hx, K, beta, rng)          # -> (assignment f, I[Y;T], H[T])
+
+    if parallel:
+        out = Parallel(n_jobs=n_jobs)(delayed(one_restart)(ss) for ss in seeds)
+    else:
+        out = [one_restart(ss) for ss in seeds]
+
+    clus = [f for f, _, _ in out]
+    IYT = np.array([iyt for _, iyt, _ in out])
+    HT  = np.array([ht for _, _, ht in out])
+    ncl = np.array([len(np.unique(f)) for f in clus])
     on = pareto_front(np.c_[-HT, IYT])                              # Pareto-optimal trade-offs
     best = {}                                                       # per cluster-count, the max-I[Y;T] solution
     for j in np.where(on)[0]:
         if ncl[j] not in best or IYT[j] > IYT[best[ncl[j]]]:
             best[ncl[j]] = j
     chosen = [best[k] for k in sorted(best)]
-    return dict(HT=HT, IYT=IYT, ncl=ncl, on=on, chosen=chosen, clus=clus)
+    return dict(HT=HT, IYT=IYT, ncl=ncl, on=on, chosen=chosen, clus=clus,
+                parallel=parallel, n_restarts=n_restarts)
 
 trans_list = [demoutils.getTransitions(s) for s in states_list]   # per-fly transition sequences
 state_vals = np.unique(np.concatenate(trans_list))                # behaviors that actually occur
 print("%d behaviors, %d transitions pooled over %d flies"
       % (len(state_vals), sum(len(t) for t in trans_list), len(trans_list)))
 
-dib = run_dib(trans_list, state_vals, lag=5, n_restarts=600, seed=0)
-print("Pareto front: %d optimal clusterings; cluster counts %s"
-      % (len(dib["chosen"]), [int(dib["ncl"][j]) for j in dib["chosen"]]))
+dib = run_dib(trans_list, state_vals, lag=5, seed=0)
+print("%d restarts (%s); Pareto front: %d optimal clusterings; cluster counts %s"
+      % (dib["n_restarts"], "parallel" if dib["parallel"] else "serial",
+         len(dib["chosen"]), [int(dib["ncl"][j]) for j in dib["chosen"]]))
 """))
 cells.append(md("The trade-off curve. Each red point is an optimal clustering; grey points are runs it beats. Labels mark the number of clusters."))
 cells.append(code(r"""
@@ -405,8 +434,8 @@ notebook **`05_slow_modes.ipynb`** (and it's what Greg Stephens will go deeper o
 
 🔧 **Your turn:** re-run with `dib = run_dib(trans_list, state_vals, lag=50)` to compress for the
 *distant* future, then redraw the two plots above. Do you get *coarser* groups &mdash; fewer cheap
-splits on the front &mdash; than predicting the near future? Then try widening the search with
-`max_clusters=40` or `n_restarts=2000` for a cleaner front.
+splits on the front &mdash; than predicting the near future? You can also widen the search with
+`max_clusters=40`, or pass `n_jobs=1` to force the slow serial path and feel what the parallelism buys.
 """))
 
 write_nb(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
