@@ -34,6 +34,24 @@ At the end of the session (or in your own time) there are two **optional** noteb
 Every notebook mixes **▶︎ "just run it"** cells with **🔧 "your turn"** cells, so it works whether
 this is your first Python or your hundredth.
 
+### Plan for the afternoon (~4.5 h)
+
+Roughly: **notebook 01 together (~40 min)**, a short break, then **one or two Act-2 tracks together
+(~40 min each)** with discussion, leaving room for questions and for you to wander off-script. The
+per-notebook time estimates are compute-only — live, with exploration and the inevitable Colab
+hiccup, budget more.
+
+- **Everyone:** `01` — the engine everything else is built on.
+- **Live, together:** we'll choose from `02`–`04` depending on the room (behavioral dynamics, then
+  rodent pharmacology and social behavior).
+- **Teasers & take-home:** `05` (slow modes) is a running start for Greg Stephens' talk the next day;
+  `06` (optogenetics) and `07` (bring-your-own) are natural fits for the Week-3 project phase. All
+  three are standalone, so you can run them whenever you like.
+
+Not sure which track? Pick by what you work on: **pharmacology or rodent behavior** → `03`/`04`;
+**dynamics and internal states** → `02`/`05`; **circuit perturbations** → `06`; **your own animal** →
+`07`.
+
 ## Before the session
 Open [`00_colab_check.ipynb`](00_colab_check.ipynb) in Colab and run it top-to-bottom (~2 min)
 to confirm your runtime works. Do this the night before — it means minute 1 of the workshop

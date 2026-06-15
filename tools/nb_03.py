@@ -3,7 +3,7 @@ Applies the notebook-01 mapping engine to a rat, then asks how amphetamine resha
 repertoire. Works from precomputed MotionMapper embeddings + watershed labels (analysis only)."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from nb_builder import md, code, badge, write_nb
+from nb_builder import md, code, badge, write_nb, setup_code, carry_from_core
 
 REPO = "bermanlabemory/unsupervised-behavior-tutorials/blob/main"
 cells = []
@@ -11,7 +11,7 @@ cells = []
 cells.append(badge("%s/03_rat_individual_behavior.ipynb" % REPO))
 
 cells.append(md(r"""
-# 3.&nbsp; Rat individual behavior: control vs amphetamine
+# Rat individual behavior: control vs amphetamine
 
 Same engine, new animal. In notebook 01 you built a behavioral map for a fly; here we use one for a
 **rat**, built exactly the same way (3-D keypoints &rarr; egocentric pose &rarr; wavelets &rarr; map
@@ -27,45 +27,28 @@ gives a built-in *no-drug* yardstick to compare the day3&rarr;day4 drug effect a
 We work from the **precomputed map** (embeddings + behavior labels), so this notebook is all analysis
 and runs in a couple of minutes. **Run time:** ~5 min.
 """))
+cells.append(md(carry_from_core()))
 
 # ---------------------------------------------------------------- setup
-cells.append(md("# 1.&nbsp; Setup"))
-cells.append(code(r"""
-import os
-if not os.path.exists("motionmapperpy"):
-    !git clone -q https://github.com/bermanlabemory/motionmapperpy
-# This notebook uses matplotlib (not moviepy) for visuals. The released package still imports
-# moviepy at load time, so we stub it out -- sidestepping the whole moviepy/ffmpeg mess on Colab.
-import sys, types
-def _stub(name, **attrs):
-    m = sys.modules.get(name) or types.ModuleType(name)
-    for k, v in attrs.items():
-        setattr(m, k, v)
-    sys.modules[name] = m
-    return m
-_stub("moviepy"); _stub("moviepy.editor", VideoClip=object, VideoFileClip=object)
-_stub("moviepy.video"); _stub("moviepy.video.io")
-_stub("moviepy.video.io.bindings", mplfig_to_npimage=lambda *a, **k: None)
+cells.append(md(r"""
+# 1.&nbsp; Setup
 
-# Import straight from the clone -- avoids the "setup.py install" empty-namespace trap; no restart.
-sys.path.insert(0, os.path.abspath("motionmapperpy"))
-for _m in [k for k in list(sys.modules) if k.startswith("motionmapperpy")]:
-    del sys.modules[_m]
-!pip install -q hdf5storage easydict umap-learn 2>/dev/null
-
-import numpy as np, matplotlib.pyplot as plt, urllib.request
-from mpl_toolkits.mplot3d import Axes3D  # noqa
-from scipy.stats import wilcoxon
-import motionmapperpy as mmpy
-%matplotlib inline
-print("ready")
+The usual opening cell &mdash; clone motionmapperpy, install the few packages Colab lacks, import what
+we need.
 """))
+cells.append(code(setup_code(
+    imports="import numpy as np, matplotlib.pyplot as plt, urllib.request\n"
+            "from mpl_toolkits.mplot3d import Axes3D  # noqa\n"
+            "from scipy.stats import wilcoxon\n"
+            "import motionmapperpy as mmpy\n"
+            "%matplotlib inline")))
 
 # ---------------------------------------------------------------- data
 cells.append(md("# 2.&nbsp; Get the rat data"))
 cells.append(md(r"""
-Two small files ship in this repo: a short clip of **raw 3-D keypoints** (one example session, just
-to see the data modality) and the **precomputed amphetamine maps** (6 rats &times; 3 days).
+Two small files ship in this repo and download into your `/content/` folder: a short clip of **raw 3-D
+keypoints** (one example session, just so we can see what the data modality looks like) and the
+**precomputed amphetamine maps** (6 rats &times; 3 days). If a download ever hiccups, re-run the cell.
 """))
 cells.append(code(r"""
 RAT_BASE = ("https://raw.githubusercontent.com/bermanlabemory/"
@@ -114,13 +97,15 @@ ax.set_title("one rat session as a behavioral map"); ax.axis("off"); plt.show()
 # ---------------------------------------------------------------- experiment
 cells.append(md("# 3.&nbsp; The amphetamine experiment"))
 cells.append(md(r"""
-Now the 6-rat &times; 3-day dataset. All 18 (animal, day) recordings were embedded into **one shared
-map**, so their densities are directly comparable. Here's the shared map, then one animal across its
-three days &mdash; watch day 4 (amphetamine) redistribute where it spends time.
+Now the full dataset: 6 rats, each on 3 days. The key move is that all 18 (animal, day) recordings were
+embedded into **one shared map**. Why bother? Because a shared map makes the densities directly
+comparable &mdash; the same spot on the map means the same behavior for every animal and every day, so a
+change is a real change and not just a different map drawn differently. Here's the shared map, then one
+rat across its three days. Watch day 4 (amphetamine): where does it start spending its time?
 """))
 cells.append(code(r"""
 allz = emb.reshape(-1, 2); R = np.abs(allz).max() + 10; ext = (-R, R, -R, R)
-def density(z, sigma=1.5):
+def density(z, sigma=1.5):       # sigma = how much we smooth the map; larger -> coarser, smaller -> finer
     return mmpy.findPointDensity(z, sigma, 501, [-R, R])[2]
 D_all = density(allz); inside = D_all > D_all.max() * 1e-3
 
@@ -133,6 +118,11 @@ for k, dd in enumerate(days):
     ax[k + 1].set_title("rat %d, day %d%s" % (a + 1, dd, "  (AMPH)" if dd == AMPH_DAY else ""))
     ax[k + 1].axis("off")
 plt.show()
+"""))
+cells.append(md(r"""
+🔧 Change `a` to a different rat (0&ndash;5) and rerun. Does amphetamine push every animal toward the
+*same* corner of the map, or does each rat have its own response? Hold that thought &mdash; the next two
+sections turn this impression into a number.
 """))
 
 # ---------------------------------------------------------------- diff maps
@@ -188,10 +178,11 @@ ax.set_title("amphetamine changes the repertoire more than\nday-to-day drift  (%
              % (int((js_amph > js_baseline).sum()), nrat, pval)); plt.show()
 """))
 cells.append(md(r"""
-Every rat moves up: the amphetamine day reshapes the behavioral repertoire **more than the animal's
-own day-to-day variation**, and the paired (Wilcoxon signed-rank) test says that's unlikely to be
-chance. This is the unsupervised version of a drug-effect readout &mdash; no behavior was ever
-hand-defined.
+Every rat moves up: the amphetamine day reshapes the behavioral repertoire **more than the animal's own
+day-to-day variation**, and the paired (Wilcoxon signed-rank) test says that's unlikely to be chance.
+The fact that every rat moves up *together* is exactly what makes a paired test convincing &mdash; what
+would you have concluded if one or two animals had moved *down* instead? This is the unsupervised version
+of a drug-effect readout, and no behavior was ever hand-defined.
 """))
 
 # ---------------------------------------------------------------- which behaviors
@@ -207,7 +198,7 @@ ax.bar(range(1, n_coarse + 1), fold, color=["firebrick" if f > 0 else "royalblue
 ax.axhline(0, color="k", lw=.5)
 ax.set_xlabel("coarse behavior class"); ax.set_ylabel("log2 fold change (AMPH / baseline)")
 ax.set_title("amphetamine up-regulates some behaviors, suppresses others"); plt.show()
-print("To NAME these classes, watch example clips of each region (as in notebook 01 section 9).")
+print("To NAME these classes, watch example clips of each region (as in notebook 01 section 10).")
 """))
 
 # ---------------------------------------------------------------- exercises

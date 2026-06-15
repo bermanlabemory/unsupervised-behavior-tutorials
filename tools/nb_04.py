@@ -4,7 +4,7 @@ maps (cz_action/sz_joint + coarse labels) and both animals' 23-joint 3-D keypoin
 modeling decisions behind Klibaite et al. 2025 on this real data."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from nb_builder import md, code, badge, write_nb
+from nb_builder import md, code, badge, write_nb, setup_code, carry_from_core
 
 REPO = "bermanlabemory/unsupervised-behavior-tutorials/blob/main"
 cells = []
@@ -12,7 +12,7 @@ cells = []
 cells.append(badge("%s/04_rat_social_behavior.ipynb" % REPO))
 
 cells.append(md(r"""
-# 4.&nbsp; Rat social behavior: quantifying what two animals do *together*
+# Rat social behavior: quantifying what two animals do *together*
 
 In notebook 03 a rat's behavior was its own pose over time. Put **two** animals in an arena and
 "behavior" stops being a property of one body &mdash; it's about the *relationship* between them.
@@ -30,39 +30,21 @@ use the keypoints for the geometric choices.
 
 **Run time:** ~5 min.
 """))
+cells.append(md(carry_from_core()))
 
 # ---------------------------------------------------------------- setup
-cells.append(md("# 1.&nbsp; Setup"))
-cells.append(code(r"""
-import os
-if not os.path.exists("motionmapperpy"):
-    !git clone -q https://github.com/bermanlabemory/motionmapperpy
-# This notebook uses matplotlib (not moviepy) for visuals. The released package still imports
-# moviepy at load time, so we stub it out -- sidestepping the whole moviepy/ffmpeg mess on Colab.
-import sys, types
-def _stub(name, **attrs):
-    m = sys.modules.get(name) or types.ModuleType(name)
-    for k, v in attrs.items():
-        setattr(m, k, v)
-    sys.modules[name] = m
-    return m
-_stub("moviepy"); _stub("moviepy.editor", VideoClip=object, VideoFileClip=object)
-_stub("moviepy.video"); _stub("moviepy.video.io")
-_stub("moviepy.video.io.bindings", mplfig_to_npimage=lambda *a, **k: None)
+cells.append(md(r"""
+# 1.&nbsp; Setup
 
-# Import straight from the clone -- avoids the "setup.py install" empty-namespace trap; no restart.
-sys.path.insert(0, os.path.abspath("motionmapperpy"))
-for _m in [k for k in list(sys.modules) if k.startswith("motionmapperpy")]:
-    del sys.modules[_m]
-!pip install -q hdf5storage easydict umap-learn 2>/dev/null
-
-import numpy as np, matplotlib.pyplot as plt, urllib.request
-from mpl_toolkits.mplot3d import Axes3D  # noqa
-from scipy.stats import mannwhitneyu
-import motionmapperpy as mmpy
-%matplotlib inline
-print("ready")
+The usual opening cell &mdash; clone motionmapperpy, install the few packages Colab lacks, import what
+we need.
 """))
+cells.append(code(setup_code(
+    imports="import numpy as np, matplotlib.pyplot as plt, urllib.request\n"
+            "from mpl_toolkits.mplot3d import Axes3D  # noqa\n"
+            "from scipy.stats import mannwhitneyu\n"
+            "import motionmapperpy as mmpy\n"
+            "%matplotlib inline")))
 
 # ---------------------------------------------------------------- data / choice 0
 cells.append(md("# 2.&nbsp; Choice 0 &mdash; work from pose, not video"))
@@ -130,7 +112,7 @@ when **alone** vs **in company**: if the map shifts, a one-animal description is
 &mdash; and that something is what the rest of the notebook has to capture.
 """))
 cells.append(code(r"""
-def density(z, R, sigma=1.5):
+def density(z, R, sigma=1.5):       # sigma = map smoothing; larger -> coarser, smaller -> finer
     return mmpy.findPointDensity(z.reshape(-1, 2), sigma, 301, [-R, R])[2]
 
 lone_cz, soc_cz_ = d["lone_cz"], soc_cz
@@ -146,8 +128,11 @@ ax[2].set_title("social - alone"); ax[2].axis("off"); plt.colorbar(im, ax=ax[2],
 plt.suptitle("an individual's own behavior shifts when a partner is present"); plt.show()
 """))
 cells.append(md(r"""
-The individual map **moves** between alone and social &mdash; context matters &mdash; but a one-animal
-map still can't say *what the pair is doing*. That motivates everything below.
+The individual map **moves** between alone and social &mdash; context matters. Why would an animal's
+*own* posture change just because a partner is in the arena (avoiding it? seeking it? keeping watch?)?
+But notice the two maps don't simply swap: one-animal behavior is only part of the story, and even a
+perfect single-animal map still can't say *what the pair is doing together*. That's what motivates
+everything below.
 """))
 
 # ---------------------------------------------------------------- choice 2
@@ -202,10 +187,12 @@ ax[1].set_title("its coarse joint-behavior classes (hljc)"); plt.show()
 # ---------------------------------------------------------------- choice 4
 cells.append(md("# 6.&nbsp; Choice 4 &mdash; how to measure synchrony"))
 cells.append(md(r"""
-Are the partners **coordinated**? One choice: take each animal's own coarse behavior and ask, for
-every pair of behaviors, whether the two animals are in those states *together* more (or less) than
-chance &mdash; the co-occurrence enrichment of Klibaite 2025 (Fig 3F). A bright **diagonal** means
-they tend to do the **same** thing at the same time.
+Are the partners **coordinated**? One choice: take each animal's own coarse behavior and ask, for every
+pair of behaviors, whether the two animals are in those states *together* more (or less) than chance
+&mdash; the co-occurrence enrichment of Klibaite 2025 (Fig 3F). We score each pair with the **log&#8322;
+odds ratio**: log&#8322;(how often they're actually in those two states together / how often you'd expect
+by chance). Zero means chance; +1 means twice as often as chance; +2 means four times. So a bright,
+positive **diagonal** means partners tend to do the **same** thing at the same moment, well above chance.
 """))
 cells.append(code(r"""
 NI = int(d["n_hlac"])
@@ -231,12 +218,14 @@ cells.append(md(r"""
 The paper fits a body **mesh** to detect contact &mdash; the most faithful choice, too heavy here. A
 lighter one: call it touch when **keypoints of the two animals come within a threshold**, binned by
 body region. Both the threshold and the regions are choices that change what "touch" means. We pool
-the two example dyads' keypoints into a **tactogram**.
+the two example dyads' keypoints into a **tactogram**. *(The loop over frame pairs below takes
+~10&ndash;15 s.)*
 """))
 cells.append(code(r"""
 REGIONS = {"head": [0, 1, 2, 3], "trunk": [4, 5, 6],
            "forelimbs": [7, 8, 9, 10, 11, 12, 13, 14], "hindlimbs": [15, 16, 17, 18, 19, 20, 21, 22]}
-names = list(REGIONS); THRESH = 40.0    # mm
+names = list(REGIONS)
+THRESH = 40.0    # mm: call it "touch" within 40 mm. Halve it for light contact, double for gross approach.
 tact = np.zeros((len(names), len(names)))
 for di in range(kp["m1"].shape[0]):                              # the example dyads
     A, B = kp["m1"][di], kp["m2"][di]
@@ -288,8 +277,11 @@ ax[1].set_title("amph dyads differ from controls\n(Mann-Whitney p = %.4f)" % pva
 """))
 cells.append(md(r"""
 Amphetamine measurably reshapes **joint** behavior &mdash; specific social-behavior classes go up and
-others down, and amph dyads sit significantly further from the control profile. No social behavior
-was ever hand-defined; it all falls out of the joint map.
+others down, and amph dyads sit significantly further from the control profile. No social behavior was
+ever hand-defined; it all falls out of the joint map. And every number here traces back to the five
+choices we made up front &mdash; change a choice and you'd measure a slightly different "social
+behavior." That isn't a flaw in the method; it's the honest part, and it's why making the choices
+explicit matters.
 """))
 
 # ---------------------------------------------------------------- exercises

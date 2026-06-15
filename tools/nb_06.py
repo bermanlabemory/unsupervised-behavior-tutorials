@@ -1,8 +1,8 @@
-"""04 — Optogenetics (Cande et al. 2018). Stimulus-triggered behavior on a map.
+"""06 — Optogenetics (Cande et al. 2018). Stimulus-triggered behavior on a map.
 Python port of the Fly_Optogenetic_Analysis workflow."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from nb_builder import md, code, badge, write_nb
+from nb_builder import md, code, badge, write_nb, setup_code, carry_from_core
 
 REPO = "bermanlabemory/unsupervised-behavior-tutorials/blob/main"
 cells = []
@@ -12,49 +12,31 @@ cells.append(badge("%s/06_optogenetics.ipynb" % REPO))
 cells.append(md(r"""
 # Optogenetics
 
-**The question:** you flash a light that activates a specific neuron in a freely moving fly.
-**Which behavior does it trigger?** Instead of a human deciding in advance what to look for, we
-ask the *whole behavioral map*: which regions does the fly visit *more* when the light is on,
-compared to when it's off &mdash; and compared to control flies that lack the light-sensitive
-channel? This is the unbiased screen from Cande et al., *eLife* 2018.
+**The question:** we flash a light that activates a specific neuron in a freely moving fly.
+**Which behavior does it trigger?** Instead of a human deciding in advance what to look for, we ask
+the *whole behavioral map*: which regions does the fly visit *more* when the light is on, compared to
+when it's off &mdash; and compared to control flies that lack the light-sensitive channel? This is the
+unbiased screen from Cande et al., *eLife* 2018.
 
-This is exactly the analysis you'd run for **your own** optogenetic or chemogenetic experiment in
-any animal &mdash; the logic is identical for a mouse.
+It's exactly the analysis you'd run for **your own** optogenetic or chemogenetic experiment in any
+animal &mdash; the logic is identical for a mouse.
 
-You don't need notebook 01. **Run time:** ~5 min.
+This is a standalone track; you don't need notebook 01. **Run time:** ~5 min.
 """))
+cells.append(md(carry_from_core()))
 
 # ---------------------------------------------------------------- setup
-cells.append(md("# 1.&nbsp; Setup"))
-cells.append(code(r"""
-import os
-if not os.path.exists("motionmapperpy"):
-    !git clone -q https://github.com/bermanlabemory/motionmapperpy
-# This notebook uses matplotlib (not moviepy) for visuals. The released package still imports
-# moviepy at load time, so we stub it out -- sidestepping the whole moviepy/ffmpeg mess on Colab.
-import sys, types
-def _stub(name, **attrs):
-    m = sys.modules.get(name) or types.ModuleType(name)
-    for k, v in attrs.items():
-        setattr(m, k, v)
-    sys.modules[name] = m
-    return m
-_stub("moviepy"); _stub("moviepy.editor", VideoClip=object, VideoFileClip=object)
-_stub("moviepy.video"); _stub("moviepy.video.io")
-_stub("moviepy.video.io.bindings", mplfig_to_npimage=lambda *a, **k: None)
+cells.append(md(r"""
+# 1.&nbsp; Setup
 
-# Import straight from the clone -- avoids the "setup.py install" empty-namespace trap; no restart.
-sys.path.insert(0, os.path.abspath("motionmapperpy"))
-for _m in [k for k in list(sys.modules) if k.startswith("motionmapperpy")]:
-    del sys.modules[_m]
-!pip install -q hdf5storage easydict 2>/dev/null
-
-import numpy as np, matplotlib.pyplot as plt
-from scipy.stats import mannwhitneyu
-import motionmapperpy as mmpy
-%matplotlib inline
-print("ready")
+The usual opening cell &mdash; clone motionmapperpy, install the few packages Colab lacks, import what
+we need.
 """))
+cells.append(code(setup_code(
+    imports="import numpy as np, matplotlib.pyplot as plt\n"
+            "from scipy.stats import mannwhitneyu\n"
+            "import motionmapperpy as mmpy\n"
+            "%matplotlib inline")))
 
 # ---------------------------------------------------------------- data
 cells.append(md("# 2.&nbsp; Load the flies, their map positions, and the light"))
@@ -84,7 +66,7 @@ def load_real():
     if not os.path.exists(OUTFILE):
         !wget -q "$DATA_URL" -O "$OUTFILE"
     if not os.path.exists(OUTFILE) or os.path.getsize(OUTFILE) < 100000:
-        raise RuntimeError("download failed -- is the repo public yet?")
+        raise RuntimeError("download failed -- check your connection, or set USE_SYNTHETIC_DATA = True above.")
     d = np.load(OUTFILE)
     bounds = np.cumsum(d["fly_lengths"])[:-1]
     flies = [z.astype(float) for z in np.split(d["z"], bounds)]   # per-fly (T x 2) map trajectory
@@ -149,12 +131,42 @@ def occupancy_map(z, sigma=2.0):
     return d
 """))
 
+# ---------------------------------------------------------------- look first
+cells.append(md(r"""
+## 3.1&nbsp; Look first: where does each fly sit when the light is on?
+
+Before averaging anything, let's just look &mdash; the same instinct as notebook 01. Each point below is
+one frame of one fly, placed in the behavior space, colored by whether the light was on at that moment.
+Here's the prediction to hold in mind: if activating this neuron drives a behavior, the **experimental**
+flies should pile their light-ON (red) points into one region, while the **control** flies &mdash; same
+light, no functional channel &mdash; should scatter red and grey together. Everything after this is just
+a careful way of testing that by eye is not enough.
+"""))
+cells.append(code(r"""
+exp_ids = np.where(~is_ctrl)[0][:2]
+ctrl_ids = np.where(is_ctrl)[0][:2]
+picks = [(i, "experimental") for i in exp_ids] + [(i, "control") for i in ctrl_ids]
+
+fig, axes = plt.subplots(1, 4, figsize=(16, 4.2))
+for ax, (k, lab) in zip(axes, picks):
+    z, led = flies[k], leds[k]
+    ax.imshow(density, extent=(-R, R, -R, R), origin="lower", cmap=mmpy.gencmap(), alpha=0.45)
+    s = max(1, len(z) // 4000)               # thin dense trajectories so the colors stay readable
+    ax.scatter(z[~led][::s, 0], z[~led][::s, 1], s=3, color="0.45", label="light OFF")
+    ax.scatter(z[led][::s, 0], z[led][::s, 1], s=3, color="firebrick", label="light ON")
+    ax.set_xlim(-R, R); ax.set_ylim(-R, R); ax.set_aspect("equal"); ax.axis("off")
+    ax.set_title("%s  (fly %d)" % (lab, k))
+axes[0].legend(loc="upper left", markerscale=3, fontsize=8, framealpha=0.9)
+plt.suptitle("each fly in behavior space — red = light ON, grey = light OFF"); plt.show()
+"""))
+
 # ---------------------------------------------------------------- difference
 cells.append(md("# 4.&nbsp; Light ON vs OFF: the difference map"))
 cells.append(md(r"""
-For each fly, compute where it spends time when the **light is on** vs **off**, and subtract.
-A neuron that drives a behavior should make its region light up (positive) in experimental flies
-but **not** in controls.
+For each fly, compute where it spends time when the **light is on** vs **off**, and subtract. A neuron
+that drives a behavior should make its region light up (positive) in experimental flies but **not** in
+controls. Before you run it, make a prediction: where on the map do you expect the experimental panel to
+light up &mdash; and what exactly does the control panel let us rule out?
 """))
 cells.append(code(r"""
 diffs = np.array([occupancy_map(z[led]) - occupancy_map(z[~led]) for z, led in zip(flies, leds)])
@@ -172,10 +184,14 @@ plt.colorbar(im, ax=ax, fraction=0.025); plt.show()
 cells.append(md("# 5.&nbsp; Which regions are *significantly* driven?"))
 cells.append(md(r"""
 A blob in the experimental map isn't enough &mdash; it has to be bigger than in controls. We test,
-**at each location in the map**, whether the ON−OFF change differs between experimental and control
+**at each location in the map**, whether the ON&minus;OFF change differs between experimental and control
 flies (a rank-sum test), keep only the occupied locations, and **control the false-discovery rate**
-(Benjamini-Hochberg) &mdash; the correction the paper uses. (Plain Bonferroni is hopelessly strict
-here: with 8 vs 8 flies the smallest possible p-value already fights hundreds of tests.)
+(Benjamini-Hochberg) &mdash; the correction the paper uses. Controlling the false-discovery rate just
+means we pick a p-value threshold such that we expect only ~5% of the locations we *call* significant to
+be false alarms. That's looser, on purpose, than demanding zero false alarms anywhere (plain Bonferroni),
+which here is hopelessly strict: with 8 vs 8 flies the smallest possible p-value is already fighting
+hundreds of simultaneous tests, so Bonferroni would reject everything. *(The per-location tests below
+take ~5&ndash;10 s.)*
 """))
 cells.append(code(r"""
 pmap = np.ones((NP, NP))

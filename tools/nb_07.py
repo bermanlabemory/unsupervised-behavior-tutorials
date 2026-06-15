@@ -1,8 +1,8 @@
-"""06 — Bring your own data. A template that walks a student from their own
+"""07 — Bring your own data. A template that walks a student from their own
 tracked keypoints to a behavioral map. Lots of TODO markers."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from nb_builder import md, code, badge, write_nb
+from nb_builder import md, code, badge, write_nb, setup_code, carry_from_core
 
 REPO = "bermanlabemory/unsupervised-behavior-tutorials/blob/main"
 cells = []
@@ -10,57 +10,40 @@ cells = []
 cells.append(badge("%s/07_bring_your_own_data.ipynb" % REPO))
 
 cells.append(md(r"""
-# Bring your own data
+# Bring your own data &mdash; your own behavioral map
 
-This is a **template** for running the whole pipeline on *your own* tracked animal &mdash; the fly,
-zebrafish, or human you tracked this week, or data from your home lab. It's notebook 01 with the
-fly-specific bits replaced by **`# TODO`** markers. Fill them in.
+This is the template for running the whole pipeline on *your own* tracked animal &mdash; the fly,
+zebrafish, or mouse you tracked this week, or data waiting back in your home lab. It's notebook 01 with
+the species-specific bits swapped out for **`# TODO`** markers; your job is to fill those in.
 
-The pipeline is the same for any animal:
-> **your keypoints → egocenter → (features) → wavelets → map → watershed → ethogram**
+The good news: the pipeline is the same for any animal, and only the first two steps actually depend on
+yours.
+> **your keypoints → egocenter → features → wavelets → map → watershed → ethogram**
 
-Only the first two steps depend on your animal. **Run time:** depends on your data.
+**Run time:** 10&ndash;20 min, depending on how much data you bring.
 """))
+cells.append(md(carry_from_core()))
 
 # ---------------------------------------------------------------- setup
-cells.append(md("# 1.&nbsp; Setup"))
-cells.append(code(r"""
-import os
-if not os.path.exists("motionmapperpy"):
-    !git clone -q https://github.com/bermanlabemory/motionmapperpy
-# This notebook uses matplotlib (not moviepy) for visuals. The released package still imports
-# moviepy at load time, so we stub it out -- sidestepping the whole moviepy/ffmpeg mess on Colab.
-import sys, types
-def _stub(name, **attrs):
-    m = sys.modules.get(name) or types.ModuleType(name)
-    for k, v in attrs.items():
-        setattr(m, k, v)
-    sys.modules[name] = m
-    return m
-_stub("moviepy"); _stub("moviepy.editor", VideoClip=object, VideoFileClip=object)
-_stub("moviepy.video"); _stub("moviepy.video.io")
-_stub("moviepy.video.io.bindings", mplfig_to_npimage=lambda *a, **k: None)
+cells.append(md(r"""
+# 1.&nbsp; Setup
 
-# Import straight from the clone -- avoids the "setup.py install" empty-namespace trap; no restart.
-sys.path.insert(0, os.path.abspath("motionmapperpy"))
-for _m in [k for k in list(sys.modules) if k.startswith("motionmapperpy")]:
-    del sys.modules[_m]
-!pip install -q hdf5storage easydict umap-learn 2>/dev/null
-
-import glob, numpy as np, matplotlib.pyplot as plt, hdf5storage
-from scipy.ndimage import median_filter
-from sklearn.decomposition import PCA
-import motionmapperpy as mmpy
-%matplotlib inline
-print("ready")
+The usual opening cell &mdash; clone motionmapperpy, install the few packages Colab lacks, import what
+we need.
 """))
+cells.append(code(setup_code(
+    imports="import glob, numpy as np, matplotlib.pyplot as plt, hdf5storage\n"
+            "from scipy.ndimage import median_filter\n"
+            "from sklearn.decomposition import PCA\n"
+            "import motionmapperpy as mmpy\n"
+            "%matplotlib inline")))
 
 # ---------------------------------------------------------------- load
-cells.append(md("# 2.&nbsp; Load YOUR tracking"))
+cells.append(md("# 2.&nbsp; Load your tracking"))
 cells.append(md(r"""
-Upload your tracked files (drag them into Colab's file browser on the left), then load them into a
-**list of arrays**, one per recording, each shaped **`(frames, n_keypoints, 2 or 3)`**. Common
-formats:
+Drag your tracked files into Colab's file browser on the left, then load them into a **list of arrays**,
+one per recording, each shaped **`(frames, n_keypoints, 2 or 3)`**. We give loaders for the common
+formats below &mdash; keep the one that matches your data and delete the rest.
 """))
 cells.append(code(r"""
 # ---- TODO: choose the loader that matches your data, delete the others ----
@@ -86,7 +69,11 @@ assert h5s, "Load your data into h5s first!"
 for i, h in enumerate(h5s):
     print("recording %d: %d frames, %d keypoints, %dD" % (i, h.shape[0], h.shape[1], h.shape[2]))
 """))
-cells.append(md("**Look at it.** Plot a few keypoint trajectories — are there jumps, NaNs, swaps? Clean tracking is everything:"))
+cells.append(md(r"""
+**Look at it first.** Plot a few keypoint trajectories and ask: jumps, NaNs, swaps? Clean tracking is
+everything here &mdash; garbage in, garbage out. Whatever survives into your features is what the map
+will treat as "behavior," tracking errors included.
+"""))
 cells.append(code(r"""
 plt.figure(figsize=(13, 4))
 plt.plot(h5s[0][:1000, :, 0])      # x of every keypoint, first 1000 frames
@@ -124,13 +111,25 @@ def egocenter(P):                         # P: (T, K, D) -> centered & rotated i
 ego = [egocenter(h) for h in h5s]
 print("egocentric feature dim:", ego[0].shape[1])
 """))
-cells.append(md("Compress with PCA (keep ~95% of the variance):"))
+cells.append(md("Compress with PCA, keeping ~95% of the variance. The curve shows how many modes that takes:"))
 cells.append(code(r"""
 X = np.concatenate(ego, 0)
 p = PCA().fit(X)
 n_pca = int(np.argmax(np.cumsum(p.explained_variance_ratio_) > 0.95)) + 1
+
+fig, ax = plt.subplots(figsize=(8, 3))
+ax.plot(np.arange(1, X.shape[1] + 1), np.cumsum(p.explained_variance_ratio_), "firebrick", marker=".")
+ax.axvline(n_pca, ls="--", color="royalblue"); ax.axhline(0.95, ls=":", color="grey")
+ax.set_xlabel("# PCA components"); ax.set_ylabel("cumulative variance explained"); plt.show()
+
 projs_list = np.split(p.transform(X)[:, :n_pca], np.cumsum([len(e) for e in ego])[:-1])
-print("keeping %d PCA modes" % n_pca)
+print("keeping %d PCA modes (95%% of the variance) out of %d features" % (n_pca, X.shape[1]))
+"""))
+cells.append(md(r"""
+How many features did you start with, and how many modes did 95% take? A big drop means your keypoints
+were highly correlated &mdash; the pose lives on a low-dimensional manifold, which is exactly what makes
+this approach work. Barely any drop means either a genuinely high-dimensional animal or noisy features
+worth revisiting.
 """))
 
 # ---------------------------------------------------------------- params + map
@@ -152,7 +151,17 @@ for i, projs in enumerate(projs_list):
                         {"projections": projs})
 print("project ready with %d recordings" % len(projs_list))
 """))
-cells.append(md("# 5.&nbsp; Build the map (same as the Core notebook)"))
+cells.append(md(r"""
+This creates a **`MyData_mmpy`** folder in the file browser on the left. Inside, `Projections/` holds
+your compressed time series; after the next steps, a `UMAP/` (or `TSNE/`) folder will hold the embedding,
+the watershed regions, and the all-important `zVals_wShed_groups.mat`.
+"""))
+cells.append(md(r"""
+# 5.&nbsp; Build the map (same engine as the Core notebook)
+
+This is the compute-heavy part: building the training embedding and then re-embedding all your data.
+**Run time:** ~2&ndash;5 min for a few short recordings, longer for big datasets.
+"""))
 cells.append(code(r"""
 import time, h5py
 t0 = time.time(); mmpy.subsampled_tsne_from_projections(parameters, parameters.projectPath)

@@ -1,8 +1,8 @@
-"""03 — Transitions & hierarchy (Berman et al. 2016). Python port of Gordon's
+"""02 — Transitions & hierarchy (Berman et al. 2016). Python port of Gordon's
 behavioral-transitions tutorial, built on motionmapperpy's demoutils."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from nb_builder import md, code, badge, write_nb
+from nb_builder import md, code, badge, write_nb, setup_code, carry_from_core
 
 REPO = "bermanlabemory/unsupervised-behavior-tutorials/blob/main"
 cells = []
@@ -18,43 +18,25 @@ next (*Markovian*), or is there long memory and structure? We'll find that fly b
 **time scales far longer than any single movement**, and a **hierarchy** of behaviors &mdash;
 following Berman, Bialek & Shaevitz, *PNAS* 2016.
 
-You don't need to have finished notebook 01 &mdash; this loads its own data: sequences of
-behavioral states for **59 flies, 117 behaviors each**, from one hour of recording apiece.
+This is a standalone track &mdash; you don't need to have finished notebook 01. It loads its own data:
+sequences of behavioral states for **59 flies, 117 behaviors each**, one hour of recording apiece.
 
 **Run time:** ~10 min.
 """))
+cells.append(md(carry_from_core()))
 
 # ---------------------------------------------------------------- setup
-cells.append(md("# 1.&nbsp; Setup"))
-cells.append(code(r"""
-import os
-if not os.path.exists("motionmapperpy"):
-    !git clone -q https://github.com/bermanlabemory/motionmapperpy
-# This notebook uses matplotlib (not moviepy) for visuals. The released package still imports
-# moviepy at load time, so we stub it out -- sidestepping the whole moviepy/ffmpeg mess on Colab.
-import sys, types
-def _stub(name, **attrs):
-    m = sys.modules.get(name) or types.ModuleType(name)
-    for k, v in attrs.items():
-        setattr(m, k, v)
-    sys.modules[name] = m
-    return m
-_stub("moviepy"); _stub("moviepy.editor", VideoClip=object, VideoFileClip=object)
-_stub("moviepy.video"); _stub("moviepy.video.io")
-_stub("moviepy.video.io.bindings", mplfig_to_npimage=lambda *a, **k: None)
+cells.append(md(r"""
+# 1.&nbsp; Setup
 
-# Import straight from the clone -- avoids the "setup.py install" empty-namespace trap; no restart.
-sys.path.insert(0, os.path.abspath("motionmapperpy"))
-for _m in [k for k in list(sys.modules) if k.startswith("motionmapperpy")]:
-    del sys.modules[_m]
-!pip install -q hdf5storage easydict 2>/dev/null
-
-import numpy as np, matplotlib.pyplot as plt
-import motionmapperpy as mmpy
-from motionmapperpy import demoutils
-%matplotlib inline
-print("ready")
+The standard opening cell, the same one that opens every notebook in this series: clone
+motionmapperpy, install the few packages Colab doesn't ship, and import what we need.
 """))
+cells.append(code(setup_code(
+    imports="import numpy as np, matplotlib.pyplot as plt\n"
+            "import motionmapperpy as mmpy\n"
+            "from motionmapperpy import demoutils\n"
+            "%matplotlib inline")))
 
 # ---------------------------------------------------------------- data
 cells.append(md("# 2.&nbsp; Load the behavioral state sequences"))
@@ -63,9 +45,10 @@ Each fly's behavior is an integer time series: which of the 117 behaviors it was
 step. We also load the 2-D **region map** (so we can draw results on the behavior space) and the
 behavioral **density**.
 
-This loads the **real 59-fly dataset** (`data/transition_data.mat`, 117 behaviors) straight from
-this tutorial's GitHub repo. If the download fails (e.g. the repo isn't public yet), it falls back
-to a stand-in generator with the same structure &mdash; set `USE_SYNTHETIC_DATA = True` to force that.
+This loads the **real 59-fly dataset** (`data/transition_data.mat`, 117 behaviors) straight from this
+tutorial's GitHub repo into your `/content/` folder. If the download ever fails, the cell quietly falls
+back to a stand-in generator with the same structure, so the notebook always runs &mdash; set
+`USE_SYNTHETIC_DATA = True` to force that yourself.
 """))
 cells.append(code(r"""
 USE_SYNTHETIC_DATA = False      # set True to force the stand-in generator below
@@ -77,7 +60,7 @@ def load_real():
     if not os.path.exists("transition_data.mat"):
         !wget -q "$DATA_URL" -O transition_data.mat
     if not os.path.exists("transition_data.mat") or os.path.getsize("transition_data.mat") < 100000:
-        raise RuntimeError("download failed -- is the repo public yet?")
+        raise RuntimeError("download failed -- check your connection, or set USE_SYNTHETIC_DATA = True above.")
     d = loadmat("transition_data.mat")           # v7 .mat -> scipy reads it directly
     states_list = [np.asarray(s).flatten().astype(int) for s in d["transition_states"].flatten()]
     return states_list, d["regionMap"], d["density"], d["xx"].flatten(), d["peakPoints"]
@@ -139,9 +122,12 @@ ax.set_title("behavioral regions (colored by region number)"); plt.show()
 # ---------------------------------------------------------------- T(1)
 cells.append(md("# 3.&nbsp; The one-step transition matrix"))
 cells.append(md(r"""
-$T(\tau)_{ij}=P(S(n+\tau)=i \mid S(n)=j)$ is the probability of being in behavior $i$ a time
-$\tau$ later, given behavior $j$ now. Start with $\tau=1$. We pool all flies. (We use
-`getTransitions` to count *transitions* between distinct behaviors, as in the paper.)
+Let's start with the simplest question we can ask: if the fly is doing behavior $j$ now, what is it
+likely to be doing a moment later? That's a **transition matrix**.
+$T(\tau)_{ij}=P(S(n+\tau)=i \mid S(n)=j)$ is the probability of being in behavior $i$ a time $\tau$
+later, given behavior $j$ now. We start with $\tau=1$ and pool all 59 flies. (We use `getTransitions`
+to count transitions *between distinct behaviors*, rather than counting every frame a behavior
+persists, exactly as in the paper.)
 """))
 cells.append(code(r"""
 states = np.concatenate([demoutils.getTransitions(s) for s in states_list])
@@ -159,10 +145,16 @@ behaviors* (grooming → grooming, one gait → a neighboring gait). Behavior is
 """))
 
 # ---------------------------------------------------------------- lags + Markov
-cells.append(md("# 4.&nbsp; Longer lags: is behavior Markovian?"))
+cells.append(md("# 4.&nbsp; Longer lags: does behavior remember?"))
 cells.append(md(r"""
-If behavior were **Markovian** (no memory), the only thing that matters is the current state, and
-the $\tau$-step matrix would just be the one-step matrix raised to the power $\tau$:
+Now the question that motivated this whole line of work. Is a fly's next move set entirely by what it's
+doing *right now* &mdash; **Markovian**, no memory &mdash; or does its deeper past still leak through
+(it's hungry, it's been grooming a while, it's wound up)? This matters: if behavior were memoryless, a
+simple model would capture it and there would be little left to explain; if it isn't, that leftover
+memory is a clue to internal states we never measured.
+
+There's a clean test. If behavior were Markovian, all that matters is the current state, so the
+$\tau$-step matrix would just be the one-step matrix raised to the power $\tau$:
 $T_\text{Markov}(\tau)=T(1)^\tau$. Let's compare the *real* $T(\tau)$ to that prediction.
 """))
 cells.append(code(r"""
@@ -185,10 +177,11 @@ started. The real data (top) **keeps structure far longer**. The fly remembers.
 # ---------------------------------------------------------------- eigenvalues
 cells.append(md("# 5.&nbsp; Measuring the time scales: eigenvalues"))
 cells.append(md(r"""
-A clean way to read the longest time scale of $T(\tau)$ is its **second eigenvalue** $|\lambda_2|$
-(the first is always 1). Closer to 1 = longer-lived structure. If behavior were Markovian, the
-eigenvalues would decay as $|\lambda_2(\tau)| = |\lambda_2(1)|^\tau$ (red below). Let's see what
-the data does (blue).
+The pictures already hint that memory outlives the Markov prediction; now let's put a number on *how
+long*. A clean way to read the longest time scale of $T(\tau)$ is its **second eigenvalue**
+$|\lambda_2|$ (the first is always 1): the closer to 1, the longer-lived the structure. If behavior
+were Markovian, the eigenvalues would decay as $|\lambda_2(\tau)| = |\lambda_2(1)|^\tau$ (red below).
+Let's see what the data actually does (blue). *(The sweep over lags below takes only a few seconds.)*
 """))
 cells.append(code(r"""
 def lam(M, k):  # k-th largest eigenvalue magnitude
@@ -229,8 +222,11 @@ repertoire* does that structure live? Here we coarse-grain the 117 behaviors int
 (DIB; Strouse & Schwab 2017), which is exactly the method Berman, Bialek & Shaevitz (2016) used to
 pull out the fly's behavioral hierarchy.
 
-Summarize the current behavior $X$ by a cluster label $T$, then score that summary by how much it
-tells us about the future behavior $Y$. Two quantities pull against each other:
+In plain terms: we want to bundle the 117 behaviors into a handful of groups that are simple to name but
+still tell us what comes next. More groups always predict a little better; fewer are simpler &mdash; and
+the whole trade-off between them *is* the hierarchy. Concretely, we summarize the current behavior $X$ by
+a cluster label $T$, then score that summary by how much it tells us about the future behavior $Y$. Two
+quantities pull against each other:
 
 - $H[T]$ &mdash; the **size** of the summary (bits to name the cluster). Smaller = more compressed.
 - $I[Y;T]$ &mdash; how much the summary **predicts the future**. Larger = more useful.
@@ -299,7 +295,7 @@ cells.append(md(r"""
 One DIB run finds *a* clustering. To map out the whole trade-off we do many runs from random
 starts, each with a random number of clusters $K$ and random $\beta$, and keep the **Pareto-optimal**
 ones (you can't predict more without spending more bits). It's a Monte-Carlo search &mdash; more
-restarts give a smoother front; ~600 takes a few seconds.
+restarts give a smoother front. **Time taken:** ~10 s for the 600 runs below.
 """))
 cells.append(code(r"""
 def build_joint(trans_list, state_vals, lag):

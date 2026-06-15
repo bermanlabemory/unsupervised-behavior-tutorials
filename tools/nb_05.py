@@ -3,7 +3,7 @@ A robust live 'concept' demo (a hidden slow variable made visible by wavelets),
 then the REAL published results loaded from the slowmode repo's cached data."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from nb_builder import md, code, badge, write_nb
+from nb_builder import md, code, badge, write_nb, setup_code, carry_from_core
 
 REPO = "bermanlabemory/unsupervised-behavior-tutorials/blob/main"
 cells = []
@@ -26,47 +26,28 @@ We'll (1) prove the core idea on a toy signal where we *know* the hidden variabl
 the **real published results** &mdash; worms and flies &mdash; loaded from the `slowmode` repo. This
 is exactly where **Greg Stephens picks up tomorrow.**
 
-**Run time:** ~5 min.
+**Run time:** ~5&ndash;7 min (the first run clones two repos; the figures themselves just load cached
+results, so they're quick).
 """))
+cells.append(md(carry_from_core()))
 
 # ---------------------------------------------------------------- setup
-cells.append(md("# 1.&nbsp; Setup"))
-cells.append(code(r"""
-import os
-if not os.path.exists("motionmapperpy"):
-    !git clone -q https://github.com/bermanlabemory/motionmapperpy
-# This notebook uses matplotlib (not moviepy) for visuals. The released package still imports
-# moviepy at load time, so we stub it out -- sidestepping the whole moviepy/ffmpeg mess on Colab.
-import sys, types
-def _stub(name, **attrs):
-    m = sys.modules.get(name) or types.ModuleType(name)
-    for k, v in attrs.items():
-        setattr(m, k, v)
-    sys.modules[name] = m
-    return m
-_stub("moviepy"); _stub("moviepy.editor", VideoClip=object, VideoFileClip=object)
-_stub("moviepy.video"); _stub("moviepy.video.io")
-_stub("moviepy.video.io.bindings", mplfig_to_npimage=lambda *a, **k: None)
+cells.append(md(r"""
+# 1.&nbsp; Setup
 
-# Import straight from the clone -- avoids the "setup.py install" empty-namespace trap; no restart.
-sys.path.insert(0, os.path.abspath("motionmapperpy"))
-for _m in [k for k in list(sys.modules) if k.startswith("motionmapperpy")]:
-    del sys.modules[_m]
-# slowmode: the real pipeline + cached results for the worm & fly figures.
-if not os.path.exists("slowmode"):
-    !git clone -q https://github.com/bermanlabemory/slowmode
-# motionmapperpy's load-time deps (hdf5storage is imported in mmutils) -- the live wavelet demo needs these.
-!pip install -q hdf5storage easydict umap-learn 2>/dev/null
-# Extras for the linked slowmode notebooks; optional here (the figures below just load cached .npz),
-# so install them on their own line -- a failure here must not block the import above.
-!pip install -q pygpcca powerlaw 2>/dev/null
-
-import numpy as np, matplotlib.pyplot as plt
-import motionmapperpy as mmpy
-%matplotlib inline
-rng = np.random.default_rng(0)
-print("ready")
+The usual opening cell, plus one extra clone: **slowmode**, the repository with the published pipeline
+and the cached worm/fly results we'll look at. (slowmode is ~100 MB, so this cell can take a minute on
+the first run.)
 """))
+cells.append(code(setup_code(
+    extra_clones=[("slowmode", "https://github.com/bermanlabemory/slowmode")],
+    imports="# pygpcca and powerlaw are only needed by the deeper slowmode notebooks; we install them on\n"
+            "# their own line so a failure here can't block the imports below (our figures just load .npz).\n"
+            "!pip install -q pygpcca powerlaw 2>/dev/null\n\n"
+            "import numpy as np, matplotlib.pyplot as plt\n"
+            "import motionmapperpy as mmpy\n"
+            "%matplotlib inline\n"
+            "rng = np.random.default_rng(0)")))
 
 # ---------------------------------------------------------------- concept
 cells.append(md("# 2.&nbsp; The core idea: make *timescale* a coordinate"))
@@ -88,7 +69,13 @@ ax[0].plot(x[:3000], lw=.6, color="0.3"); ax[0].set_ylabel("observed signal x(t)
 ax[1].plot(hidden, color="seagreen"); ax[1].set_ylabel("HIDDEN state"); ax[1].set_xlabel("frame")
 ax[0].set_title("you see the top; the bottom is hidden"); plt.show()
 """))
-cells.append(md("**Instantaneously**, x tells you almost nothing about the hidden state. But take its **wavelet spectrogram** &mdash; make timescale a coordinate &mdash; and the hidden state is obvious:"))
+cells.append(md(r"""
+**Instantaneously**, x tells you almost nothing about the hidden state. We need to look at *timescale*,
+and the tool for that is a **wavelet spectrogram**: it breaks the signal into time-frequency slices. That
+matters &mdash; a plain Fourier transform would tell us *which* frequencies are present but not *when*
+they change, washing the switch away. Wavelets keep the *when*. Make timescale a coordinate, and the
+hidden state jumps right out:
+"""))
 cells.append(code(r"""
 w, freqs = mmpy.findWavelets(x[:, None], 1, 5, 25, fs, 12.0, 0.5, -1, -1)   # (T, 25 frequencies)
 
@@ -107,17 +94,21 @@ print("correlation with the hidden state:   raw signal |r| = %.2f    wavelet ban
 """))
 cells.append(md(r"""
 The raw signal hides the slow variable ($|r|\approx0$); the time-frequency view **exposes** it
-($|r|\approx1$). That's the whole idea. The full method clusters this wavelet representation, builds
-a **transfer operator**, and reads its **slow eigenvectors** &mdash; and for $>2$ basins uses
+($|r|\approx1$). Worth pausing on: nothing about the *instantaneous* value of x changed &mdash; all we
+did was ask how it's *wiggling*. That reframing is the entire method. The full version clusters this
+wavelet representation, builds a **transfer operator** (the same object whose eigenvalues gave us time
+scales in notebook 02), and reads its **slow eigenvectors** &mdash; and for more than 2 basins uses
 **G-PCCA** to extract them. Below we look at what that recovers on real animals.
 """))
 
 # ---------------------------------------------------------------- worms
 cells.append(md("# 3.&nbsp; Worms: two metastable basins = run vs pirouette"))
 cells.append(md(r"""
-*C. elegans* posture is summarized by 5 "eigenworms". Running the multi-timescale operator on 12
-worms, the eigenvalue spectrum shows a clear gap after **M = 2** basins, which turn out to be the
-canonical **run** and **pirouette** states (Kaur 2026, Fig 3; data cached in the `slowmode` repo).
+*C. elegans* posture is summarized by 5 "eigenworms". Running the multi-timescale operator on 12 worms,
+the eigenvalue spectrum shows a clear gap after **M = 2** basins, which turn out to be the canonical
+**run** and **pirouette** states (Kaur 2026, Fig 3; data cached in the `slowmode` repo). That *spectral
+gap* &mdash; a sudden drop in the eigenvalue spectrum after the Mth value &mdash; is the tell that there
+are exactly M long-lived states; here it falls after 2.
 """))
 cells.append(code(r"""
 W = "slowmode/data/worms"
@@ -168,6 +159,7 @@ except Exception as e:
 """))
 cells.append(md("The **arms-and-hub** geometry the theory predicts: cluster centroids form M arms radiating from a hub, one per basin (Kaur 2026, Fig 4):"))
 cells.append(code(r"""
+F = "slowmode/data/flies"      # (also set in section 4; repeated so this cell stands on its own)
 try:
     gp = np.load(F + "/gpcca_flies_M4_tau2s.npz")
     cent, hub, chi = gp["arm_centroids"], gp["hub"], gp["chi"]    # centroids in (phi2,phi3,phi4)
@@ -190,11 +182,13 @@ except Exception as e:
 # ---------------------------------------------------------------- diagnostics
 cells.append(md("# 5.&nbsp; Don't trust it blindly: the diagnostics"))
 cells.append(md(r"""
-The most useful idea in the paper for *practitioners*: four **falsifiable** checks that tell you
-whether slow structure is really there &mdash; (i) a clear spectral gap at M; (ii) **collective**
-modes (high participation ratio), not a few lone clusters; (iii) the arms geometry; (iv) held-out
-prediction beating a memoryless null. `slowmode/diagnostics.py` returns a pass/fail table. *A method
-that tells you when it does **not** apply is rare and precious.*
+The most useful idea in the paper for *practitioners*: four **falsifiable** checks that tell you whether
+slow structure is really there &mdash; (i) a clear spectral gap at M; (ii) **collective** modes (high
+participation ratio), not a few lone clusters; (iii) the arms geometry; (iv) held-out prediction beating
+a memoryless null. (The **participation ratio** just counts how many clusters meaningfully share in a
+mode: a value &#8811;1 means the slow mode is a *collective* property of many behaviors, not an artifact
+of one or two.) We compute the first two below; `slowmode/diagnostics.py` returns the full pass/fail
+table. *A method that tells you when it does **not** apply is rare and precious.*
 """))
 cells.append(code(r"""
 try:
@@ -225,8 +219,8 @@ bistable driver that the method recovers across nearly three decades of dwell ti
 🔧 **Your turn:** open `slowmode/user_data.ipynb` and feed it `Fly_mmpy/Projections/*_pcaModes.mat`
 from notebook 01.
 
-➡️ **Tomorrow with Greg Stephens:** maximally predictive states, operators, and the dynamics of
-behavior. This notebook is your running start.
+**Tomorrow, with Greg Stephens:** maximally predictive states, operators, and the dynamics of behavior.
+This notebook is your running start.
 """))
 
 write_nb(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
