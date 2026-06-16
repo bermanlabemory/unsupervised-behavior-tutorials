@@ -19,9 +19,7 @@ when it's off &mdash; and compared to control flies that lack the light-sensitiv
 unbiased screen from Cande et al., *eLife* 2018.
 
 It's exactly the analysis you'd run for **your own** optogenetic or chemogenetic experiment in any
-animal &mdash; the logic is identical for a mouse.
-
-This is a standalone track; you don't need notebook 01. **Run time:** ~5 min.
+animal.
 """))
 cells.append(md(carry_from_core()))
 
@@ -44,12 +42,12 @@ cells.append(md(r"""
 For each fly we need its trajectory **in behavior space** (a 2-D point per frame, from a map like
 the one in notebook 01) and a **light on/off** time series.
 
-This loads a **real strain from Cande et al. 2018** (`ss02635`): one filming session of **12 flies**
+This loads a **real strain from Cande et al. 2018** (`ss02635`, containing expression in the G7 and G8 descending neurons): one filming session of **12 flies**
 recorded at once. The design has its control built in &mdash; **cameras 7&ndash;12 are
 experimental** (fed all-*trans*-retinal, so the light-gated channel *Chrimson* is functional) and
 **cameras 1&ndash;6 are controls** (no retinal, so the identical light does nothing). The light
-pulses in ~15&nbsp;s cycles; the embeddings were computed exactly as in notebook 01 and
-down-sampled to 25&nbsp;Hz to keep the download small (~4&nbsp;MB).
+pulses in 15 s cycles; the embeddings were computed exactly as in notebook 01 and
+down-sampled to 25 Hz to keep the download small (~4 MB).
 
 Set `USE_SYNTHETIC_DATA = True` (or if the download fails) to use the stand-in generator instead,
 which has a neuron whose activation drives one particular behavior.
@@ -318,13 +316,13 @@ Set `STRAIN` in &sect;2 to any of these and rerun:
 
 | `STRAIN` | what this simple ON&ndash;vs&ndash;OFF screen finds |
 |---|---|
-| `"ss02635"` | **the default** &mdash; the strongest, cleanest hit (a large up-regulated region) |
-| `"ss02617_0226"` | another clear hit |
-| `"ss01049"` | a clear hit elsewhere on the map, with both up- **and** down-regulation |
-| `"ss01540"` | a subtler hit (mostly *down*-regulation &mdash; a behavior the light suppresses) |
-| `"ss01597_1v_1022"` | no region survives the FDR test here |
-| `"ss01602"` | no region survives the FDR test here |
-| `"ss02393_1v_1009"` | no region survives the FDR test here |
+| `"ss02635"` (G7 and G8) | **the default** &mdash; the strongest, cleanest hit (a large up-regulated region) |
+| `"ss02617_0226"` (G11) | another clear hit |
+| `"ss01049"` (P10) | a clear hit elsewhere on the map, with both up- **and** down-regulation |
+| `"ss01540"` (P9) | a subtler hit (mostly *down*-regulation &mdash; a behavior the light suppresses) |
+| `"ss01597_1v_1022"` (G7) | no region survives the FDR test here |
+| `"ss01602"` (G25) | no region survives the FDR test here |
+| `"ss02393_1v_1009"` (A8) | no region survives the FDR test here |
 
 Those last three are a deliberate reality check. Not every neuron yields a hit &mdash; and our
 **simplified** screen (whole-stimulus ON vs whole-stimulus OFF) deliberately trades sensitivity for
