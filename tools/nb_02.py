@@ -114,8 +114,10 @@ if USE_SYNTHETIC_DATA:
 """))
 cells.append(md("The region map &mdash; note that nearby region numbers tend to be similar behaviors:"))
 cells.append(code(r"""
+cmap = plt.cm.tab20.copy(); cmap.set_bad("white")             # paint the background (region 0) white
 fig, ax = plt.subplots(figsize=(5, 5))
-ax.imshow(regionMap, cmap="tab20", origin="lower"); ax.axis("equal"); ax.axis("off")
+ax.imshow(np.ma.masked_where(regionMap == 0, regionMap), cmap=cmap, origin="lower")
+ax.axis("equal"); ax.axis("off")
 ax.set_title("behavioral regions (colored by region number)"); plt.show()
 """))
 
@@ -142,6 +144,51 @@ cells.append(md(r"""
 **Does it look random?** No &mdash; there's block structure along the diagonal. Because nearby
 region numbers are similar behaviors, this says the fly mostly transitions *between similar
 behaviors* (grooming → grooming, one gait → a neighboring gait). Behavior is locally smooth.
+"""))
+
+# ---------------------------------------------------------------- transitions on the map
+cells.append(md(r"""
+## 3.1&nbsp; The same matrix, drawn on the map
+
+A matrix is hard to *feel*. Those same transition probabilities are really a **graph**: each behavior is
+a node sitting at its place on the behavioral map, and each arrow is a transition. Below, a dot's size
+is how often the animal visits that region and an arc's width is how often it makes that transition (we
+hide the faintest ones, and bow each i&rarr;j arc to its own side so the two directions don't overlap).
+Watch how the arrows hug the map's local neighborhoods &mdash; behavior flows mostly between *nearby*
+regions, the spatial echo of the block structure in the matrix above.
+"""))
+cells.append(code(r"""
+uniq = np.unique(states[states > 0])                          # region labels, in T1's row/col order
+cents = np.full((len(uniq), 2), np.nan)                       # each region's centroid, in image pixels
+freq = np.zeros(len(uniq))                                    # how often each region is visited
+for k, r in enumerate(uniq):
+    ys, xs = np.where(regionMap == r)
+    if len(xs):
+        cents[k] = [xs.mean(), ys.mean()]
+    freq[k] = np.sum(states == r)
+
+def curved(p, q, bend=0.18, n=24):                            # quadratic Bezier p->q, bowed sideways
+    p, q = np.asarray(p, float), np.asarray(q, float)
+    d = q - p
+    ctrl = (p + q) / 2 + bend * np.array([-d[1], d[0]])       # control point, offset perpendicular to p->q
+    t = np.linspace(0, 1, n)[:, None]
+    return (1 - t) ** 2 * p + 2 * (1 - t) * t * ctrl + t ** 2 * q
+
+maxT = T1.max()
+hide = 0.05 * maxT                                            # don't draw the faintest transitions
+fig, ax = plt.subplots(figsize=(7, 7))
+if density.shape == regionMap.shape:                          # faint behavioral density behind the graph
+    ax.imshow(density, origin="lower", cmap="Purples")
+ax.set_xlim(0, regionMap.shape[1]); ax.set_ylim(0, regionMap.shape[0])
+for i in range(len(uniq)):
+    for j in range(len(uniq)):
+        if i != j and T1[i, j] >= hide and not np.isnan(cents[i, 0]) and not np.isnan(cents[j, 0]):
+            c = curved(cents[i], cents[j])
+            ax.plot(c[:, 0], c[:, 1], "-", color="k", lw=5 * T1[i, j] / maxT, alpha=0.5)
+ax.scatter(cents[:, 0], cents[:, 1], s=400 * freq / freq.max(), c="firebrick",
+           edgecolor="k", linewidth=0.4, zorder=3)
+ax.set_aspect("equal"); ax.axis("off")
+ax.set_title("transitions on the map  (dot = how often, arc = transition rate)"); plt.show()
 """))
 
 # ---------------------------------------------------------------- lags + Markov
