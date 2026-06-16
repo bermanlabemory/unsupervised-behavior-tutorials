@@ -456,29 +456,49 @@ HTML(anim.to_jshtml())
 cells.append(md(r"""
 # 10.&nbsp; What *is* each region? Watch example bouts, then name them
 
-A region is just a number until you've *watched* it. The helper below finds the longest bout of a
-chosen region and plays it back (video + skeleton) right here, so you can decide what it is.
+A region is just a number until you've *watched* it. The helper below finds the **longest few bouts** of
+a chosen region across the recordings and plays them **together in a grid**, each clipped to the shortest
+so they stay in sync (video + skeleton), so you can see what they share and decide what it is.
 """))
 cells.append(code(r"""
-def show_region(region, dataset=0, max_len=150):
-    # Find contiguous bouts of `region` in one recording, and play back the longest one.
-    wr = np.split(wfile["watershedRegions"].flatten(),
-                  np.cumsum(wfile["zValLens"][0].flatten())[:-1])[dataset]
-    on = (wr == region).astype(int)
-    starts = np.where(np.diff(np.r_[0, on]) == 1)[0]
-    ends = np.where(np.diff(np.r_[on, 0]) == -1)[0] + 1
-    if len(starts) == 0:
-        print("region %d not found in %s" % (region, datasetnames[dataset])); return None
-    k = (ends - starts).argmax()
-    s, e = int(starts[k]), int(min(ends[k], starts[k] + max_len))
-    frames = read_frames(moviepaths[dataset], s, e - s)
-    fig, ax = plt.subplots(figsize=(5, 5))
+def show_region(region, n_show=4, max_len=150, downsample=2):
+    # Find every contiguous bout of `region` across all recordings, take the longest few, clip them all
+    # to the shortest one's length (so they stay in sync), and play them together in a grid. Frames are
+    # spatially subsampled by `downsample` to keep it light -- set downsample=1 for full resolution.
+    splits = np.cumsum(wfile["zValLens"][0].flatten())[:-1]
+    wregs = np.split(wfile["watershedRegions"].flatten(), splits)
+    bouts = []                                            # (length, dataset, start) for every bout
+    for di in range(len(datasetnames)):
+        on = (wregs[di] == region).astype(int)
+        starts = np.where(np.diff(np.r_[0, on]) == 1)[0]
+        ends = np.where(np.diff(np.r_[on, 0]) == -1)[0] + 1
+        bouts += [(int(e - s), di, int(s)) for s, e in zip(starts, ends)]
+    if not bouts:
+        print("region %d never occurs in these recordings." % region); return None
+    bouts = sorted(bouts, reverse=True)[:n_show]          # the longest few
+    nframes = min(min(b[0] for b in bouts), max_len)      # clip all to the shortest bout (capped for speed)
+
+    clips = []                                            # (dataset, start, [subsampled frames]) per bout
+    for _, di, s in bouts:
+        fr = read_frames(moviepaths[di], s, nframes)
+        clips.append((di, s, [f[::downsample, ::downsample] for f in fr]))
+    nframes = min([nframes] + [len(fr) for _, _, fr in clips])    # guard against a short read
+
+    n = len(clips)
+    nrow, ncol = {1: (1, 1), 2: (1, 2), 3: (1, 3)}.get(n, (2, 2))   # smaller grid if < 4 bouts
+    fig, axes = plt.subplots(nrow, ncol, figsize=(4 * ncol, 4 * nrow), squeeze=False)
+    axes = axes.ravel()
     def update(i):
-        ax.clear(); ax.imshow(frames[i], origin="lower")
-        for c in connections:
-            ax.plot(h5s[dataset][s + i, c, 0], h5s[dataset][s + i, c, 1], "-", color="firebrick", lw=1)
-        ax.axis("off"); ax.set_title("region %d  (frame %d)" % (region, s + i))
-    anim = FuncAnimation(fig, update, frames=len(frames), interval=50); plt.close()
+        for ax in axes:
+            ax.clear(); ax.axis("off")
+        for k, (di, s, fr) in enumerate(clips):
+            axes[k].imshow(fr[i], origin="lower")
+            for c in connections:                          # skeleton, scaled to the subsampled frame
+                axes[k].plot(h5s[di][s + i, c, 0] / downsample, h5s[di][s + i, c, 1] / downsample,
+                             "-", color="firebrick", lw=1)
+            axes[k].set_title("%s  (frame %d)" % (datasetnames[di], s + i), fontsize=8)
+    fig.suptitle("region %d — the %d longest bouts, in sync" % (region, n))
+    anim = FuncAnimation(fig, update, frames=nframes, interval=50); plt.close()
     return HTML(anim.to_jshtml())
 
 wmax = int(wfile["watershedRegions"].max())
