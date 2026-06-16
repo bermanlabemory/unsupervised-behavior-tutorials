@@ -219,8 +219,7 @@ bistable driver that the method recovers across nearly three decades of dwell ti
 🔧 **Your turn:** open `slowmode/user_data.ipynb` and feed it `Fly_mmpy/Projections/*_pcaModes.mat`
 from notebook 01.
 
-**Tomorrow, with Greg Stephens:** maximally predictive states, operators, and the dynamics of behavior.
-This notebook is your running start.
+
 """))
 
 write_nb(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
