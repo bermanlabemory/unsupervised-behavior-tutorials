@@ -90,6 +90,7 @@ for j, fr in enumerate(picks):
     for P, col in [(A[fr], "firebrick"), (B[fr], "royalblue")]:
         ax.scatter(P[:, 0], P[:, 1], P[:, 2], color=col, s=12)
         for a, b in EDGES: ax.plot(*P[[a, b]].T, color=col, lw=1.2)
+    ax.set_aspect("equal")                       # equal x/y/z scaling -> undistorted rats, separation to scale
     ax.set_title("frame %d  (apart=%.0fmm)" % (fr, sep[fr])); ax.set_xticks([]); ax.set_yticks([]); ax.set_zticks([])
     ax.view_init(elev=20, azim=-70)
 plt.suptitle("two rats, real 3-D keypoints"); plt.show()

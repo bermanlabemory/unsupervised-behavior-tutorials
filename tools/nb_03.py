@@ -88,6 +88,7 @@ for j, fi in enumerate(idxs):
     ax.scatter(P[:, 0], P[:, 1], P[:, 2], c="firebrick", s=12)
     for a, b in edges:
         ax.plot(*P[[a, b]].T, color="0.3", lw=1.2)
+    ax.set_aspect("equal")                        # equal x/y/z scaling -> undistorted rat
     ax.set_title("frame %d" % fi); ax.set_xticks([]); ax.set_yticks([]); ax.set_zticks([])
     ax.view_init(elev=15, azim=-70)
 plt.suptitle("raw 3-D rat keypoints (one example session)"); plt.show()

@@ -65,7 +65,7 @@ freq = np.where(hidden == 0, 2.0, 6.0)          # hidden state secretly sets the
 x = np.sin(np.cumsum(2*np.pi*freq/fs)) + 0.3*rng.standard_normal(T)   # all you observe
 
 fig, ax = plt.subplots(2, 1, figsize=(13, 4), sharex=True)
-ax[0].plot(x[:3000], lw=.6, color="0.3"); ax[0].set_ylabel("observed signal x(t)")
+ax[0].plot(x, lw=.6, color="0.3"); ax[0].set_ylabel("observed signal x(t)")
 ax[1].plot(hidden, color="seagreen"); ax[1].set_ylabel("HIDDEN state"); ax[1].set_xlabel("frame")
 ax[0].set_title("you see the top; the bottom is hidden"); plt.show()
 """))
