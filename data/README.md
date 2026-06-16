@@ -8,11 +8,11 @@ stand-in) so the repo stays Colab-friendly. Real data small enough to ship lives
 - **`transition_data.mat`** (1.9 MB) — the real 59-fly transition dataset for
   `02_transitions_and_hierarchy.ipynb` (defaults to `USE_SYNTHETIC_DATA = False`).
 - **`rat_data/`** (~7 MB) — Ugne Klibaite's rats for `03_rat_individual_behavior.ipynb`:
-  `amph.npz` (6 rats × 3 days of precomputed MotionMapper embeddings + fine/coarse watershed labels;
-  days 2–3 baseline, day 4 amphetamine; all 18 share one map space) and
-  `rat_keypoints_session1.npz` (a 3-D DANNCE keypoint clip + skeleton + one session's behavioral map,
-  for the "look at the raw data" intro). Regenerate with `python tools/make_rat_data.py`; source is
-  `Dropbox/.../tutorial-data-uk/`.
+  `amph.npz` (6 rats × 3 days of precomputed individual-map (`cz_action`) embeddings + fine/coarse
+  watershed labels; days 2–3 baseline, day 4 amphetamine; all 18 share one map space) and
+  `rat_keypoints_session1.npz` (a 23-joint 3-D s-DANNCE keypoint clip + skeleton + one lone session's
+  behavioral map, for the "look at the raw data" intro). Regenerate with `python tools/make_rat_data.py`;
+  source is `Dropbox/LE_CONTROL_AMPH/` (the `_L` lone sessions — same cohort as the social data below).
 - **`rat_data/rat_social.npz` + `rat_data/rat_social_keypoints.npz`** (~20 MB) — real Long-Evans
   dyads for `04_rat_social_behavior.ipynb`: 45 dyads (24 control + 21 amph) + 30 lone sessions, each
   with the precomputed **individual** map (`cz_action` + coarse labels) and **social/joint** map

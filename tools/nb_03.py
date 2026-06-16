@@ -1,6 +1,7 @@
 """03 — Rat individual behavior: control vs amphetamine (Ugne Klibaite's rat data).
-Applies the notebook-01 mapping engine to a rat, then asks how amphetamine reshapes the behavioral
-repertoire. Works from precomputed MotionMapper embeddings + watershed labels (analysis only)."""
+Applies the notebook-01 mapping idea to a rat (23-keypoint s-DANNCE), then asks how amphetamine reshapes
+the behavioral repertoire vs day-to-day drift. Works from the precomputed individual action map
+(cz_action) + watershed labels of the LE_CONTROL_AMPH *lone* sessions (analysis only)."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from nb_builder import md, code, badge, write_nb, setup_code, carry_from_core
@@ -64,14 +65,18 @@ print("keypoint clip:", kp["kp_clip"].shape, "| %d joints @ %d Hz" % (kp["kp_cli
 
 cells.append(md("## 2.1&nbsp; Look at the raw data first"))
 cells.append(md(r"""
-The front-end for a rat is **3-D keypoints** (here 20 body landmarks tracked with DANNCE), not a
-fly's joint angles &mdash; but everything after that is nearly identical. Two rat-specific choices
-shaped the map you're about to use. First, each animal's keypoints are scaled by its own body size
-(the 97.5th percentile of the snout-to-tailbase distance), so a large rat and a small rat doing the same
-thing land in the same spot rather than two. Second, the pose is made egocentric &mdash; which throws
-away height off the floor &mdash; so height, and each joint's speed, is *added back*, precisely so the
-map can tell a rear from a crouch. Here are a few frames of the tracked skeleton, and the behavioral map
-this example session lives on (peaks = common behaviors).
+The front-end for a rat is **3-D keypoints** &mdash; here **23 body landmarks** tracked with s-DANNCE &mdash;
+rather than a fly's joint angles, but the core idea is the one from notebook 01: turn the raw tracking into a
+**time series of features**, let **wavelets** capture how those features move (the *dynamics*), and embed that
+into a **map**. A few rat-specific choices shape the features. First, each animal's keypoints are scaled by its
+own body size (the 97.5th percentile of the snout-to-tailbase distance), so a large rat and a small rat doing
+the same thing land in the same place rather than two. Then, instead of the raw coordinates, each instant's pose
+is summarized by the **23&times;23 matrix of all-to-all distances between landmarks** &mdash; a description that
+doesn't care which way the animal happens to be facing &mdash; and its **top 15 principal components** become the
+core time series the wavelets run on. Two more features are added back *without* wavelets, because their
+instantaneous value is what matters: each landmark's **height off the floor** (so the map can tell a rear from a
+crouch) and each landmark's **speed**. Here are a few frames of the tracked skeleton, and the behavioral map this
+example session lives on (peaks = common behaviors).
 """))
 cells.append(code(r"""
 clip, edges = kp["kp_clip"], kp["edges"]
