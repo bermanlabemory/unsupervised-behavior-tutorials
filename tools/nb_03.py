@@ -11,21 +11,17 @@ cells = []
 cells.append(badge("%s/03_rat_individual_behavior.ipynb" % REPO))
 
 cells.append(md(r"""
-# Rat individual behavior: control vs amphetamine
+# Rat individual behavior &mdash; Quantifying rats on speed
+In notebook 01 you built a behavioral map for a fly; here we use one for a
+**rat**, built in essentially the same way (now with 3-D keypoints instead of 2-D keypoints &rarr; egocentric pose &rarr; wavelets &rarr; map
+&rarr; watershed).  
 
-Same engine, new animal. In notebook 01 you built a behavioral map for a fly; here we use one for a
-**rat**, built exactly the same way (3-D keypoints &rarr; egocentric pose &rarr; wavelets &rarr; map
-&rarr; watershed), and put it to work on a real pharmacology question:
+Naturally, the obvious next step is to give the animals speed.  Absurdity aside, we will ask how amphetamine reshape an individual rat's behavioral repertoire and compare that change to normal day-to-day behavioral variation?
 
-> **How does amphetamine reshape an individual rat's behavioral repertoire &mdash; and is that change
-> bigger than the normal day-to-day variation?**
+The data (from Ugne Klibaite (Harvard), paper here: https://www.cell.com/cell/fulltext/S0092-8674(25)00154-0): **6 rats**, each recorded on **3 days** (really, it was 5 days, but we're restricting it here for the sake of minimizing runtime). Days 2 and 3 are **baseline**; on **day 4** the
+animal received **amphetamine**. Because every animal is its own control across days, day2&rarr;day3 gives a built-in *no-drug* yardstick to compare the day3&rarr;day4 drug effect against.
 
-The data: **6 rats**, each recorded on **3 days**. Days 2 and 3 are **baseline**; on **day 4** the
-animal received **amphetamine**. Because every animal is its own control across days, day2&rarr;day3
-gives a built-in *no-drug* yardstick to compare the day3&rarr;day4 drug effect against.
-
-We work from the **precomputed map** (embeddings + behavior labels), so this notebook is all analysis
-and runs in a couple of minutes. **Run time:** ~5 min.
+We work from the **precomputed map** (embeddings + behavior labels), so this notebook is all analysis and runs in a couple of minutes.
 """))
 cells.append(md(carry_from_core()))
 
@@ -48,7 +44,7 @@ cells.append(md("# 2.&nbsp; Get the rat data"))
 cells.append(md(r"""
 Two small files ship in this repo and download into your `/content/` folder: a short clip of **raw 3-D
 keypoints** (one example session, just so we can see what the data modality looks like) and the
-**precomputed amphetamine maps** (6 rats &times; 3 days). If a download ever hiccups, re-run the cell.
+**precomputed amphetamine maps** (6 rats &times; 3 days). If a download ever hiccups, re-run this cell.
 """))
 cells.append(code(r"""
 RAT_BASE = ("https://raw.githubusercontent.com/bermanlabemory/"
@@ -88,9 +84,10 @@ plt.suptitle("raw 3-D rat keypoints (one example session)"); plt.show()
 """))
 cells.append(code(r"""
 ze = kp["emb"]; R0 = np.abs(ze).max() + 10
-_, _, d0 = mmpy.findPointDensity(ze, 1.0, 501, [-R0, R0])
+_, xx, d0 = mmpy.findPointDensity(ze, 1.0, 501, [-R0, R0])
 fig, ax = plt.subplots(figsize=(5, 5))
 ax.imshow(d0, extent=(-R0, R0, -R0, R0), origin="lower", cmap=mmpy.gencmap())
+ax.contour(xx, xx, d0, levels=[1e-6], colors="k", linewidths=1)
 ax.set_title("one rat session as a behavioral map"); ax.axis("off"); plt.show()
 """))
 
@@ -98,29 +95,33 @@ ax.set_title("one rat session as a behavioral map"); ax.axis("off"); plt.show()
 cells.append(md("# 3.&nbsp; The amphetamine experiment"))
 cells.append(md(r"""
 Now the full dataset: 6 rats, each on 3 days. The key move is that all 18 (animal, day) recordings were
-embedded into **one shared map**. Why bother? Because a shared map makes the densities directly
+embedded into **one shared map**. Why make a shared map? Because a shared map makes the densities directly
 comparable &mdash; the same spot on the map means the same behavior for every animal and every day, so a
 change is a real change and not just a different map drawn differently. Here's the shared map, then one
 rat across its three days. Watch day 4 (amphetamine): where does it start spending its time?
 """))
 cells.append(code(r"""
+animal = 0   # 🔧 which animal (0..5)
+
 allz = emb.reshape(-1, 2); R = np.abs(allz).max() + 10; ext = (-R, R, -R, R)
 def density(z, sigma=1.5):       # sigma = how much we smooth the map; larger -> coarser, smaller -> finer
     return mmpy.findPointDensity(z, sigma, 501, [-R, R])[2]
 D_all = density(allz); inside = D_all > D_all.max() * 1e-3
 
-a = 0    # 🔧 which animal (0..5)
-fig, ax = plt.subplots(1, 4, figsize=(18, 4.6))
+
+fig, ax = plt.subplots(1, 4, figsize=(18, 12))
 ax[0].imshow(D_all, extent=ext, origin="lower", cmap=mmpy.gencmap())
+ax[0].contour(xx, xx, D_all, levels=[1e-6], colors="k", linewidths=1)
 ax[0].set_title("shared map (all rats, all days)"); ax[0].axis("off")
 for k, dd in enumerate(days):
-    ax[k + 1].imshow(density(emb[k, a]), extent=ext, origin="lower", cmap=mmpy.gencmap())
-    ax[k + 1].set_title("rat %d, day %d%s" % (a + 1, dd, "  (AMPH)" if dd == AMPH_DAY else ""))
+    ax[k + 1].imshow(density(emb[k, animal]), extent=ext, origin="lower", cmap=mmpy.gencmap())
+    ax[k + 1].set_title("rat %d, day %d%s" % (animal + 1, dd, "  (AMPH)" if dd == AMPH_DAY else ""))
+    ax[k + 1].contour(xx, xx, D_all, levels=[1e-5], colors="k", linewidths=1)
     ax[k + 1].axis("off")
 plt.show()
 """))
 cells.append(md(r"""
-🔧 Change `a` to a different rat (0&ndash;5) and rerun. Does amphetamine push every animal toward the
+🔧 Change `animal` to a different rat (0&ndash;5) and rerun. Does amphetamine push every animal toward the
 *same* corner of the map, or does each rat have its own response? Hold that thought &mdash; the next two
 sections turn this impression into a number.
 """))
@@ -140,8 +141,9 @@ D2, D3, D4 = mean_density(0), mean_density(1), mean_density(2)
 fig, ax = plt.subplots(1, 2, figsize=(11, 5))
 for a_, (Da, Db, t) in zip(ax, [(D3, D2, "baseline drift (day3 - day2)"),
                                  (D4, D3, "AMPH effect (day4 - day3)")]):
-    diff = Da - Db; diff[~inside] = 0; v = np.abs(diff).max()
+    diff = Da - Db; diff[~inside] = 0; v = np.abs(diff).max()*.5
     im = a_.imshow(diff, extent=ext, origin="lower", cmap="RdBu_r", vmin=-v, vmax=v)
+    a_.contour(xx, xx, D_all, levels=[1e-5], colors="k", linewidths=1)
     a_.set_title(t); a_.axis("off")
 plt.colorbar(im, ax=ax, fraction=0.025); plt.suptitle("red = more time after; blue = less"); plt.show()
 """))
@@ -150,9 +152,7 @@ plt.colorbar(im, ax=ax, fraction=0.025); plt.suptitle("red = more time after; bl
 cells.append(md("# 5.&nbsp; Quantify it: how much did the repertoire change?"))
 cells.append(md(r"""
 Summarize each (animal, day) by its **occupancy fingerprint** &mdash; the fraction of time spent in
-each of the 9 coarse behavior classes &mdash; and measure the change between days with the
-**Jensen-Shannon divergence** (0 = identical repertoire, larger = more different). For each rat we
-compare the no-drug change (day2&rarr;3) against the amphetamine change (day3&rarr;4).
+each of the 9 coarse behavior classes &mdash; and measure the change between days with the **Jensen-Shannon (J-S) divergence**. The J-S divergence is an information theoretic measure of how similar two probability distributions are.  Technically, it's the mutual information (don't worry if you don't know what that is!) between draws randomly taken out of two distribution and the identity of the distribution the draw was taken from.  Thus, it is a measure of **distinguishability**, with 0 meaning that the distributions are functionally equivalent and 1 meaning that there is no overlap. For each rat we compare the no-drug change (day2&rarr;3) against the amphetamine change (day3&rarr;4).
 """))
 cells.append(code(r"""
 def occupancy(labels):
@@ -169,20 +169,17 @@ js_amph     = np.array([js(occupancy(cclust[1, a]), occupancy(cclust[2, a])) for
 pval = wilcoxon(js_baseline, js_amph).pvalue
 
 fig, ax = plt.subplots(figsize=(5, 5))
-ax.bar([0, 1], [js_baseline.mean(), js_amph.mean()], color=["royalblue", "firebrick"], alpha=.85)
+#ax.bar([0, 1], [js_baseline.mean(), js_amph.mean()], color=["royalblue", "firebrick"], alpha=.85)
 ax.plot([np.zeros(nrat), np.ones(nrat)], [js_baseline, js_amph], "-", color="0.4", lw=1)
 ax.plot(np.zeros(nrat), js_baseline, "ko"); ax.plot(np.ones(nrat), js_amph, "ko")
-ax.set_xticks([0, 1]); ax.set_xticklabels(["baseline\n(day2->3)", "amphetamine\n(day3->4)"])
+#ax.set_xticks([0, 1]); ax.set_xticklabels(["baseline\n(day2->3)", "amphetamine\n(day3->4)"])
 ax.set_ylabel("JS divergence (bits)")
 ax.set_title("amphetamine changes the repertoire more than\nday-to-day drift  (%d/%d rats, p=%.3f)"
              % (int((js_amph > js_baseline).sum()), nrat, pval)); plt.show()
 """))
 cells.append(md(r"""
-Every rat moves up: the amphetamine day reshapes the behavioral repertoire **more than the animal's own
-day-to-day variation**, and the paired (Wilcoxon signed-rank) test says that's unlikely to be chance.
-The fact that every rat moves up *together* is exactly what makes a paired test convincing &mdash; what
-would you have concluded if one or two animals had moved *down* instead? This is the unsupervised version
-of a drug-effect readout, and no behavior was ever hand-defined.
+Every rat moves up: the amphetamine reshapes the behavioral repertoire **more than the animal's own day-to-day variation**, and the paired (Wilcoxon signed-rank) test says that's unlikely to be chance.
+The fact that *every* rat moves up is exactly what makes a paired test convincing. This is the unsupervised version of a drug-effect readout, and no behavior was ever hand-defined, or even really defined in terms of language. We just compared repertoires.  Now, though, we do want to find out what behaviors are upregulated.  Although, given that we're giving them speed, we might have a good guess.
 """))
 
 # ---------------------------------------------------------------- which behaviors
@@ -193,12 +190,16 @@ occ_base = np.array([occupancy(cclust[1, a]) for a in range(nrat)]).mean(0)   # 
 occ_amph = np.array([occupancy(cclust[2, a]) for a in range(nrat)]).mean(0)   # day4 amphetamine
 fold = np.log2((occ_amph + 1e-3) / (occ_base + 1e-3))
 
+behavior_names = ["idle", "sniffing", "grooming", "scrunching", "active crouching", "rearing", "exploring","locomotion","fast"]
+
 fig, ax = plt.subplots(figsize=(8, 4))
 ax.bar(range(1, n_coarse + 1), fold, color=["firebrick" if f > 0 else "royalblue" for f in fold])
 ax.axhline(0, color="k", lw=.5)
+ax.set_xticks(range(1, n_coarse + 1))
+ax.set_xticklabels([n.replace(" ", "\n") for n in behavior_names], rotation=90)
 ax.set_xlabel("coarse behavior class"); ax.set_ylabel("log2 fold change (AMPH / baseline)")
-ax.set_title("amphetamine up-regulates some behaviors, suppresses others"); plt.show()
-print("To NAME these classes, watch example clips of each region (as in notebook 01 section 10).")
+ax.set_title("amphetamine up-regulates some behaviors, suppresses others")
+plt.tight_layout(); plt.show()
 """))
 
 # ---------------------------------------------------------------- exercises

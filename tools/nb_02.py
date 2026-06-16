@@ -417,7 +417,7 @@ state_vals = np.unique(np.concatenate(trans_list))                # behaviors th
 print("%d behaviors, %d transitions pooled over %d flies"
       % (len(state_vals), sum(len(t) for t in trans_list), len(trans_list)))
 
-dib = run_dib(trans_list, state_vals, lag=5, seed=0)
+dib = run_dib(trans_list, state_vals, lag=100, seed=0)
 print("%d restarts (%s); Pareto front: %d optimal clusterings; cluster counts %s"
       % (dib["n_restarts"], "parallel" if dib["parallel"] else "serial",
          len(dib["chosen"]), [int(dib["ncl"][j]) for j in dib["chosen"]]))
@@ -431,11 +431,11 @@ front = sorted(np.where(dib["on"])[0], key=lambda j: dib["HT"][j])
 ax.plot(dib["HT"][front], dib["IYT"][front], "s-", color="crimson", ms=4, label="Pareto front")
 for j in dib["chosen"]:
     if dib["ncl"][j] <= 8:
-        ax.annotate(str(int(dib["ncl"][j])), (dib["HT"][j], dib["IYT"][j]),
+        ax.annotate(str(int(dib["ncl"][j])), (dib["HT"][j]-.6, dib["IYT"][j]),
                     textcoords="offset points", xytext=(5, -10), fontsize=9, color="crimson")
 ax.set_xlabel(r"$H[T]$  (bits to name the cluster)  $\to$  more compression")
 ax.set_ylabel(r"$I[Y;T]$  (bits about the future)  $\to$  more prediction")
-ax.legend(loc="lower right"); ax.set_title("DIB trade-off: prediction vs. compression (lag = 5)")
+ax.legend(loc="lower right"); ax.set_title("DIB trade-off: prediction vs. compression (lag = 100)")
 plt.show()
 """))
 cells.append(md(r"""

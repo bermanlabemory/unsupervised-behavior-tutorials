@@ -9,17 +9,10 @@ cells = []
 cells.append(badge("%s/00_colab_check.ipynb" % REPO))
 
 cells.append(md(r"""
-# Colab check &mdash; run this *before* the workshop
+# Colab check
 
-**Time: about 2 minutes.** This little notebook doesn't teach anything; it just confirms that your
-Google Colab runtime can do everything we'll ask of it on the afternoon of the workshop. Run every
-cell top to bottom (Shift+Enter, or `Runtime → Run all`). If the last cell prints a happy message,
-you're set. If something breaks, send us the error *before* the session &mdash; a couple of minutes now
-is far less painful than troubleshooting once we've all started.
-
-> **New to Colab?** It's a free Jupyter notebook that runs on Google's computers, so you don't
-> install anything on your own laptop. Cells run top to bottom; a cell is "running" while it shows a
-> spinner, and prints its output underneath when it's done.
+This short notebook doesn't teach anything; it just confirms that your Google Colab runtime can do everything we'll ask of it on the afternoon of the workshop. Run every
+cell top to bottom (Shift+Enter, or `Runtime → Run all`). If the last cell prints a happy message, you're set. 
 """))
 
 # ---------------------------------------------------------------- machine
@@ -37,9 +30,9 @@ print("GPU:", gpu.stdout.strip() if gpu.returncode == 0 else "none (that's perfe
 
 # ---------------------------------------------------------------- engine
 cells.append(md(r"""
-# 2.&nbsp; Grab the analysis engine
+# 2.&nbsp; Grab the analysis package
 
-We'll lean on **motionmapperpy** all afternoon &mdash; a GPU-friendly Python implementation of
+We'll lean on **motionmapperpy** for this tutorial &mdash; a GPU-friendly Python implementation of
 MotionMapper. The cell below clones it from GitHub (which also brings the small example datasets),
 installs the handful of packages Colab doesn't already ship, and imports it. The same setup cell
 opens every notebook in this series, so this is your first look at it.
@@ -56,7 +49,7 @@ cells.append(md(r"""
 
 # ---------------------------------------------------------------- smoke test
 cells.append(md(r"""
-# 3.&nbsp; The smoke test
+# 3.&nbsp; Code test
 
 One real step of the pipeline on fake data. A **wavelet transform** is the engine's core move &mdash;
 it turns a posture time series into a picture of *how fast things are wiggling, at each moment*
@@ -82,7 +75,7 @@ ax.imshow(wavelets[:500].T, aspect="auto", cmap="PuRd", origin="lower")
 ax.set_title("a wavelet spectrogram of fake data — if you can see this, you're ready")
 ax.set_xlabel("frame"); ax.set_ylabel("wavelet channel"); plt.show()
 
-print("\n✅ All set. See you at the workshop!")
+print("\n✅ All set!")
 """))
 
 write_nb(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

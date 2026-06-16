@@ -10,28 +10,25 @@ cells = []
 cells.append(badge("%s/01_build_a_behavioral_map.ipynb" % REPO))
 
 cells.append(md(r"""
-# Build a behavioral map &mdash; the Core
+# Building a Behavioral Map
 
-Welcome! This is the notebook **everyone** does. By the end you'll have taken raw, tracked
-body-part positions and turned them into a **behavioral map**: a 2-D atlas of (nearly) everything a
-fly does, discovered *without telling the computer a single behavior name in advance*.
+Welcome! By the end of this notebook, you'll have taken raw, tracked
+body-part positions and turned them into a **behavioral map**: a 2-D atlas of (nearly) everything a fly does during an experiment.
 
-Earlier this week you saw **supervised** behavior classification &mdash; you hand a classifier
-labelled examples and it learns to find more of them. This is the **unsupervised** complement: we
-let the structure of the movement itself carve up the repertoire, and only afterwards go and ask
-what we found. The two are good at different things, and they get along nicely.
+Earlier in the course, you saw **supervised** behavior classification &mdash; you hand a classifier labelled examples and it learns to find more of them. This is the **unsupervised** complement: we let the structure of the movement itself carve up the repertoire, and only afterwards go and ask what we found. 
 
-The recipe is the same whether the animal is a worm, a mouse, or a rat &mdash; only the very first
-step changes:
+Almost all unsupervised methods follow the same formula:
 
-> **postures &rarr; postural *dynamics* (wavelets) &rarr; a 2-D map &rarr; discrete behaviors (watershed)**
+> **postures &rarr; postural dynamics &rarr; behavioral description**
 
-We'll do it on a *fly* (the data are clean and the whole thing runs fast on a free runtime). Most of
-you work on rodents &mdash; don't worry, the engine doesn't care, and notebooks 03 and 04 run this
-exact pipeline on rats. Think of the fly as the friendliest place to learn the machine.
+The idea is the same whether the animal is a worm, a mouse, or a rat &mdash;  (although we need to think carefully about how we represent all of these things). For the method we'll talk about today, this formula will specifically use
 
-**Total run time:** ~20&ndash;30 min. A GPU runtime is nice but not required
-(`Runtime → Change runtime type → GPU`).
+> **postures &rarr; postural *dynamics* (wavelets) &rarr; a 2-D behavioral map &rarr; discrete behaviors (watershed transform)**
+
+We'll do it on a fly first (although notebooks 3 and 4 run a very similar
+ pipeline on 3-D tracked data from rats). 
+
+A GPU runtime is nice but not required for this notebook (`Runtime → Change runtime type → GPU`).
 
 | How to read the cells | |
 |---|---|
@@ -43,10 +40,9 @@ exact pipeline on rats. Think of the fly as the friendliest place to learn the m
 cells.append(md(r"""
 # 1.&nbsp; Get the code and data
 
-We start by downloading **motionmapperpy** (we'll often call it **mmpy**) from GitHub. It ships with
-a small example dataset: two short movies of a single fly walking in a shallow dish, with **32 body
+We start by downloading **motionmapperpy** (we'll often call it **mmpy**) from GitHub. It includes a small example dataset: two short movies of a single fly walking in a shallow dish, with **32 body
 parts tracked** in every frame (tracked here with [LEAP](https://www.nature.com/articles/s41592-018-0234-5),
-but SLEAP or DeepLabCut output looks the same). After this cell runs you'll see a `motionmapperpy`
+but SLEAP or DeepLabCut output looks similar). After this cell runs you'll see a `motionmapperpy`
 folder appear in the file browser on the left &mdash; our working directory is `/content/`, in case
 you ever feel lost.
 """))
@@ -70,7 +66,7 @@ import pandas as pd                           # tidy tables; the tracking files 
 import hdf5storage                            # reads/writes the MATLAB-style .mat files mmpy uses
 import cv2                                     # reads video frames; ships with Colab, no ffmpeg hassle
 import matplotlib.pyplot as plt               # plotting
-from matplotlib.animation import FuncAnimation  # we animate frames with pure matplotlib (no moviepy)
+from matplotlib.animation import FuncAnimation  # to animate frames
 from IPython.display import HTML               # to show those animations inline
 from scipy.ndimage import median_filter       # a gentle de-noiser for jittery tracking
 from sklearn.decomposition import PCA         # to compress correlated features
@@ -165,7 +161,7 @@ HTML(anim.to_jshtml())
 
 # ---------------------------------------------------------------- representation
 cells.append(md(r"""
-# 4.&nbsp; Choose a representation &mdash; this is where the biology lives
+# 4.&nbsp; Choose a representation
 
 The single most consequential decision in this whole pipeline is **what numbers we use to describe a
 posture**. Raw pixel positions are a poor choice: they change whenever the *whole fly* moves or turns,
@@ -330,13 +326,13 @@ became hundreds of numbers per frame. That's exactly why we spent effort compres
 
 # ---------------------------------------------------------------- embed
 cells.append(md(r"""
-# 7.&nbsp; Squash it into 2-D: the behavioral map
+# 7.&nbsp; Compress into 2-D: the behavioral map
 
 Every frame is now a point in a high-dimensional space of "postural dynamics," where similar movements
 sit near one another. We use **UMAP** (or t-SNE) to flatten that space down to 2-D so we can actually
 *see* it, while doing its best to keep neighbors as neighbors.
 
-Doing this on every frame at once would melt the RAM, so mmpy first builds a representative **training
+Doing this on every frame at once would melt your instance's RAM, so ```mmpy``` first builds a representative **training
 set** &mdash; it runs many small embeddings and samples broadly, which is what lets rare behaviors earn
 their own spot &mdash; embeds that, and later re-embeds everything onto it.
 
@@ -355,7 +351,7 @@ There's no single "correct" sigma &mdash; it depends on how finely you want to l
 cells.append(code(r"""
 ty = hdf5storage.loadmat("%s/%s/training_embedding.mat" % (projectPath, parameters.method))["trainingEmbedding"]
 m = np.abs(ty).max()
-sigma = 1.0    # 🔧 your turn: try 0.5 or 3.0
+sigma = 3.0    # 🔧 your turn: try 1 or 5.0
 _, xx, dens = mmpy.findPointDensity(ty, sigma, 511, [-m - 15, m + 15])
 
 fig, ax = plt.subplots(1, 2, figsize=(12, 6))
@@ -401,8 +397,8 @@ each amount of smoothing and keeps the one that lands closest. *(Prefer "at leas
 `num_regions` and pass `minimum_regions=N` instead.)*
 """))
 cells.append(code(r"""
-startsigma = 1.0 if parameters.method == "UMAP" else 4.2
-mmpy.findWatershedRegions(parameters, num_regions=12, startsigma=startsigma,
+startsigma = .5 if parameters.method == "UMAP" else 4.2
+mmpy.findWatershedRegions(parameters, minimum_regions=12, startsigma=startsigma,
                           pThreshold=[0.33, 0.67], saveplot=True, endident="*_pcaModes.mat")
 from IPython.display import Image
 Image(glob.glob("%s/%s/zWshed*.png" % (projectPath, parameters.method))[0])
@@ -435,20 +431,20 @@ cells.append(md("## 9.1&nbsp; Watch the fly move across its own map"))
 cells.append(md("The dot is where the fly is *in behavior space* as the movie plays (~1&ndash;2 min to render):"))
 cells.append(code(r"""
 zValues = wfile["zValues"]; m = np.abs(zValues).max()
-_, xx, dens = mmpy.findPointDensity(zValues, 1.0, 511, [-m - 10, m + 10])
-h5ind, tstart, nframes = 0, 1500, 120
+_, xx, dens = mmpy.findPointDensity(zValues, 3, 511, [-m - 10, m + 10])
+h5ind, tstart, nframes = 0, 50, 120
 frames = read_frames(moviepaths[h5ind], tstart, nframes)
 
 fig, ax = plt.subplots(1, 2, figsize=(11, 5.5))
 ax[0].imshow(dens, extent=(xx[0], xx[-1], xx[0], xx[-1]), cmap=mmpy.gencmap(), origin="lower")
 ax[0].axis("off"); ax[0].set_title("behavior space")
-dot = ax[0].scatter([], [], s=300, color="k")
+dot = ax[0].scatter([], [], s=300, color="c")
 
 def update(i):
     f = tstart + i
     ax[1].clear(); ax[1].imshow(frames[i], origin="lower")
     for c in connections:
-        ax[1].plot(h5s[h5ind][f, c, 0], h5s[h5ind][f, c, 1], "k-", lw=1)
+        ax[1].plot(h5s[h5ind][f, c, 0], h5s[h5ind][f, c, 1], "m-", lw=1)
     ax[1].axis("off"); dot.set_offsets(zValues[f])
 
 anim = FuncAnimation(fig, update, frames=len(frames), interval=66)
@@ -539,12 +535,12 @@ any of them even if your map here didn't come out perfect:
 | `02_transitions_and_hierarchy.ipynb` | Is behavior **Markovian**? How is it organized in time? |
 | `03_rat_individual_behavior.ipynb` | How does **amphetamine** reshape a rat's repertoire? |
 | `04_rat_social_behavior.ipynb` | How do you **quantify what two animals do together**? |
-| `05_slow_modes.ipynb` | What **slow internal states** bias the fast actions? |
 
 And for the end of the session (or your own time):
 
 | Notebook | You'll answer |
 |---|---|
+| `05_slow_modes.ipynb` | What **slow internal states** bias the fast actions? |
 | `06_optogenetics.ipynb` | Which behaviors does **activating a neuron** trigger? |
 | `07_bring_your_own_data.ipynb` | Run all of this on **your own** animal. |
 """))
