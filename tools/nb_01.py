@@ -124,19 +124,23 @@ for d, h in zip(datasetnames, h5s):
     print("%s: %d frames, %d body parts" % (d, h.shape[0], h.shape[1]))
 """))
 cells.append(md(r"""
-Tracking always has the odd glitch &mdash; a point that jumps a few pixels and snaps back. A light
-**median filter** smooths those out without blurring real movement. Let's look at a couple of traces
-before and after, so you can see exactly what it does (and convince yourself it isn't doing too much):
+Tracking always has the odd glitch &mdash; a body part that leaps to a wrong spot for a frame or two and
+snaps back. A light **median filter** wipes those out without blurring real movement. Below is the
+vertical position of one leg tip before and after &mdash; watch the filter erase the spikes while
+leaving the real motion intact:
 """))
 cells.append(code(r"""
-raw = h5s[0][:600, 3, 0]                                  # x of one body part, first 600 frames
+fps = 100                                                 # these movies were filmed at 100 fps
+seg = slice(1400, 1800)                                   # a stretch with obvious leg-tracking glitches
+raw = h5s[0][seg, 13, 1].copy()                           # y of one leg-tip keypoint (~4 s)
 h5s = [median_filter(h, size=(5, 1, 1)) for h in h5s]     # 5-frame median, per coordinate
-clean = h5s[0][:600, 3, 0]
+clean = h5s[0][seg, 13, 1]
+t = np.arange(seg.stop - seg.start) / fps                 # seconds
 
 fig, ax = plt.subplots(figsize=(13, 3))
-ax.plot(raw, color="0.7", lw=2, label="raw")
-ax.plot(clean, color="firebrick", lw=1, label="median-filtered")
-ax.set_xlabel("frame"); ax.set_ylabel("x position (px)"); ax.legend(); plt.show()
+ax.plot(t, raw, color="0.7", lw=2, label="raw")
+ax.plot(t, clean, color="firebrick", lw=1, label="median-filtered")
+ax.set_xlabel("time (s)"); ax.set_ylabel("y position (px)"); ax.legend(); plt.show()
 """))
 cells.append(md("Now overlay the tracked skeleton on the video and watch the fly move (this takes ~1 min to render):"))
 cells.append(code(r"""
@@ -206,10 +210,11 @@ angleh5s = [A - lo for A in angleh5s]
 hi = np.max([A.max(0) for A in angleh5s], 0)
 angleh5s = [A / hi for A in angleh5s]
 
+t = np.arange(1000) / fps
 fig, ax = plt.subplots(figsize=(14, 4))
-ax.plot(angleh5s[0][1000:2000, [3, 1, 13]])
-ax.set_xlabel("frame"); ax.set_ylabel("normalized angle")
-ax.legend(["wingtip angle", "neck angle", "midleg femur-tibia angle"]); plt.show()
+ax.plot(t, angleh5s[0][1000:2000, [3, 9, 13]])
+ax.set_xlabel("time (s)"); ax.set_ylabel("normalized angle")
+ax.legend(["wingtip angle", "hindleg tibia angle", "midleg femur-tibia angle"]); plt.show()
 """))
 cells.append(md(r"""
 **Compress with PCA.** Those 22 angles are far from independent &mdash; legs move together, wings move
@@ -306,11 +311,13 @@ wlets, freqs = mmpy.findWavelets(projs_list[0], n_pca, parameters.omega0,
 # On a GPU runtime findWavelets hands back CuPy (GPU) arrays; pull them to NumPy so matplotlib can plot.
 wlets = wlets.get() if hasattr(wlets, "get") else np.asarray(wlets)
 freqs = freqs.get() if hasattr(freqs, "get") else np.asarray(freqs)
+nshow = 600
 fig, axes = plt.subplots(n_pca, 1, figsize=(14, 1.3 * n_pca), sharex=True)
 for i, ax in enumerate(np.atleast_1d(axes)):
-    ax.imshow(wlets[:600, 25 * i:25 * (i + 1)].T, cmap="PuRd", aspect="auto", origin="lower")
-    ax.set_ylabel("PC%d" % (i + 1), fontsize=8); ax.set_yticks([])
-axes[-1].set_xlabel("frame"); plt.tight_layout(); plt.show()
+    ax.imshow(wlets[:nshow, 25 * i:25 * (i + 1)].T, cmap="PuRd", aspect="auto", origin="lower",
+              extent=(0, nshow / fps, freqs[0], freqs[-1]))
+    ax.set_ylabel("PC%d freq (Hz)" % (i + 1), fontsize=8); ax.set_yticks([1, 50])
+axes[-1].set_xlabel("time (s)"); plt.tight_layout(); plt.show()
 print("each frame is now described by %d numbers (%d modes x %d frequencies)"
       % (n_pca * parameters.numPeriods, n_pca, parameters.numPeriods))
 """))
@@ -352,9 +359,11 @@ sigma = 1.0    # 🔧 your turn: try 0.5 or 3.0
 _, xx, dens = mmpy.findPointDensity(ty, sigma, 511, [-m - 15, m + 15])
 
 fig, ax = plt.subplots(1, 2, figsize=(12, 6))
-ax[0].scatter(ty[:, 0], ty[:, 1], s=1, c=np.arange(len(ty))); ax[0].set_title("training points")
+ax[0].scatter(ty[:, 0], ty[:, 1], s=1, c=np.arange(len(ty)))
+ax[0].set_xlim(xx[0], xx[-1]); ax[0].set_ylim(xx[0], xx[-1]); ax[0].set_aspect("equal")
+ax[0].set_title("training points")
 ax[1].imshow(dens, extent=(xx[0], xx[-1], xx[0], xx[-1]), cmap=mmpy.gencmap(), origin="lower")
-ax[1].set_title("behavioral density (sigma=%.1f)" % sigma); plt.show()
+ax[1].set_aspect("equal"); ax[1].set_title("behavioral density (sigma=%.1f)" % sigma); plt.show()
 """))
 cells.append(md(r"""
 Now **re-embed all the data** onto that map and save it, so every frame of every movie gets a 2-D
@@ -416,9 +425,9 @@ etho = np.split(etho.T, np.cumsum(wfile["zValLens"][0].flatten())[:-1])
 
 fig, axes = plt.subplots(len(etho), 1, figsize=(16, 6))
 for e, nm, ax in zip(etho, wfile["zValNames"][0], np.atleast_1d(axes)):
-    ax.imshow(e.T, aspect="auto", cmap=mmpy.gencmap()); ax.set_title(str(nm[0][0]), fontsize=9)
-    ax.set_ylabel("region")
-axes[-1].set_xlabel("frame"); plt.tight_layout(); plt.show()
+    ax.imshow(e.T, aspect="auto", cmap=mmpy.gencmap(), extent=(0, e.shape[0] / fps, 0, e.shape[1]))
+    ax.set_title(str(nm[0][0]), fontsize=9); ax.set_ylabel("region")
+axes[-1].set_xlabel("time (s)"); plt.tight_layout(); plt.show()
 """))
 cells.append(md("## 9.1&nbsp; Watch the fly move across its own map"))
 cells.append(md("The dot is where the fly is *in behavior space* as the movie plays (~1&ndash;2 min to render):"))
