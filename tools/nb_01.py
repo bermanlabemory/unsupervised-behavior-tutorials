@@ -458,15 +458,19 @@ cells.append(md(r"""
 
 A region is just a number until you've *watched* it. The helper below finds the **longest few bouts** of
 a chosen region across the recordings and plays them **together in a grid**, each clipped to the shortest
-so they stay in sync (video + skeleton), so you can see what they share and decide what it is.
+so they stay in sync (video + skeleton), with a **colored dot** tracing each fly's path across the
+behavioral map on the left (its color matches the box around its movie), so you can see what they share
+and decide what it is.
 """))
 cells.append(code(r"""
 def show_region(region, n_show=4, max_len=150, downsample=2):
     # Find every contiguous bout of `region` across all recordings, take the longest few, clip them all
-    # to the shortest one's length (so they stay in sync), and play them together in a grid. Frames are
-    # spatially subsampled by `downsample` to keep it light -- set downsample=1 for full resolution.
-    splits = np.cumsum(wfile["zValLens"][0].flatten())[:-1]
-    wregs = np.split(wfile["watershedRegions"].flatten(), splits)
+    # to the shortest one's length (so they stay in sync), and play them in a grid -- with a coloured dot
+    # tracing each fly's path through the behavioral map on the left (one colour per fly, matched by the
+    # coloured box around its movie). Frames are spatially subsampled by `downsample` to keep it light.
+    zValues = wfile["zValues"]
+    offsets = np.r_[0, np.cumsum(wfile["zValLens"][0].flatten())]   # row in zValues where each recording starts
+    wregs = np.split(wfile["watershedRegions"].flatten(), offsets[1:-1])
     bouts = []                                            # (length, dataset, start) for every bout
     for di in range(len(datasetnames)):
         on = (wregs[di] == region).astype(int)
@@ -483,21 +487,37 @@ def show_region(region, n_show=4, max_len=150, downsample=2):
         fr = read_frames(moviepaths[di], s, nframes)
         clips.append((di, s, [f[::downsample, ::downsample] for f in fr]))
     nframes = min([nframes] + [len(fr) for _, _, fr in clips])    # guard against a short read
-
     n = len(clips)
-    nrow, ncol = {1: (1, 1), 2: (1, 2), 3: (1, 3)}.get(n, (2, 2))   # smaller grid if < 4 bouts
-    fig, axes = plt.subplots(nrow, ncol, figsize=(4 * ncol, 4 * nrow), squeeze=False)
-    axes = axes.ravel()
+    colors = ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3"][:n]      # one colour per fly
+
+    # behavioral map on the left, the n movies in a grid on the right (smaller grid if < 4 bouts)
+    ncol = 1 if n == 1 else 2
+    nrow = int(np.ceil(n / ncol))
+    grid = [["map"] + ["m%d" % (r * ncol + cc) if r * ncol + cc < n else "." for cc in range(ncol)]
+            for r in range(nrow)]
+    fig, axd = plt.subplot_mosaic(grid, figsize=(3.2 * (1.4 + ncol), 3.2 * nrow),
+                                  gridspec_kw={"width_ratios": [1.4] + [1] * ncol})
+
+    # draw the map once (only the dots move); each dot is one fly, coloured to match its box
+    axm = axd["map"]; m = np.abs(zValues).max()
+    _, xx, dens = mmpy.findPointDensity(zValues, 1.0, 511, [-m - 10, m + 10])
+    axm.imshow(dens, extent=(xx[0], xx[-1], xx[0], xx[-1]), origin="lower", cmap=mmpy.gencmap())
+    axm.set_aspect("equal"); axm.axis("off")
+    def dot_xy(i):
+        return np.array([zValues[offsets[di] + s + i] for di, s, _ in clips])
+    dots = axm.scatter(*dot_xy(0).T, c=colors, s=160, edgecolor="k", linewidth=0.7, zorder=3)
+
     def update(i):
-        for ax in axes:
-            ax.clear(); ax.axis("off")
+        dots.set_offsets(dot_xy(i))                        # move each fly's dot to its place on the map
         for k, (di, s, fr) in enumerate(clips):
-            axes[k].imshow(fr[i], origin="lower")
+            ax = axd["m%d" % k]; ax.clear(); ax.set_xticks([]); ax.set_yticks([])
+            for sp in ax.spines.values():                  # coloured box matching this fly's dot
+                sp.set_color(colors[k]); sp.set_linewidth(3)
+            ax.imshow(fr[i], origin="lower")
             for c in connections:                          # skeleton, scaled to the subsampled frame
-                axes[k].plot(h5s[di][s + i, c, 0] / downsample, h5s[di][s + i, c, 1] / downsample,
-                             "-", color="firebrick", lw=1)
-            axes[k].set_title("%s  (frame %d)" % (datasetnames[di], s + i), fontsize=8)
-    fig.suptitle("region %d — the %d longest bouts, in sync" % (region, n))
+                ax.plot(h5s[di][s + i, c, 0] / downsample, h5s[di][s + i, c, 1] / downsample,
+                        "-", color="firebrick", lw=1)
+            ax.set_title("%s  (frame %d)" % (datasetnames[di], s + i), fontsize=8)
     anim = FuncAnimation(fig, update, frames=nframes, interval=50); plt.close()
     return HTML(anim.to_jshtml())
 
