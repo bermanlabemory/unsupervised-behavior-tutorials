@@ -171,6 +171,7 @@ with h5py.File(tf + "training_embedding.mat", "r") as f: tE = f["trainingEmbeddi
 zstr = "uVals" if parameters.method == "UMAP" else "zVals"
 for pf in glob.glob(parameters.projectPath + "/Projections/*_pcaModes.mat"):
     z, _ = mmpy.findEmbeddings(hdf5storage.loadmat(pf)["projections"], tD, tE, parameters)
+    z = z.get() if hasattr(z, "get") else np.asarray(z)            # GPU (CuPy) -> NumPy before saving
     hdf5storage.write(data={"zValues": z}, path="/", filename=pf[:-4] + "_%s.mat" % zstr,
                       store_python_metadata=False, matlab_compatible=True, truncate_existing=True)
 print("map built in %d s" % (time.time() - t0))

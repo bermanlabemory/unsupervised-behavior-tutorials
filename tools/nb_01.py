@@ -303,6 +303,9 @@ wlets, freqs = mmpy.findWavelets(projs_list[0], n_pca, parameters.omega0,
                                  parameters.numPeriods, parameters.samplingFreq,
                                  parameters.maxF, parameters.minF,
                                  parameters.numProcessors, parameters.useGPU)
+# On a GPU runtime findWavelets hands back CuPy (GPU) arrays; pull them to NumPy so matplotlib can plot.
+wlets = wlets.get() if hasattr(wlets, "get") else np.asarray(wlets)
+freqs = freqs.get() if hasattr(freqs, "get") else np.asarray(freqs)
 fig, axes = plt.subplots(n_pca, 1, figsize=(14, 1.3 * n_pca), sharex=True)
 for i, ax in enumerate(np.atleast_1d(axes)):
     ax.imshow(wlets[:600, 25 * i:25 * (i + 1)].T, cmap="PuRd", aspect="auto", origin="lower")
@@ -371,6 +374,7 @@ for pf in glob.glob(projectPath + "/Projections/*_pcaModes.mat"):
         continue
     projections = hdf5storage.loadmat(pf)["projections"]
     z, _ = mmpy.findEmbeddings(projections, trainingSetData, trainingEmbedding, parameters)
+    z = z.get() if hasattr(z, "get") else np.asarray(z)            # GPU (CuPy) -> NumPy before saving
     hdf5storage.write(data={"zValues": z}, path="/", filename=pf[:-4] + "_%s.mat" % zstr,
                       store_python_metadata=False, matlab_compatible=True, truncate_existing=True)
 print("all data embedded")
