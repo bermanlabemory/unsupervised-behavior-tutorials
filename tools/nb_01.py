@@ -500,7 +500,7 @@ def show_region(region, n_show=4, max_len=150, downsample=2):
 
     # draw the map once (only the dots move); each dot is one fly, coloured to match its box
     axm = axd["map"]; m = np.abs(zValues).max()
-    _, xx, dens = mmpy.findPointDensity(zValues, 1.0, 511, [-m - 10, m + 10])
+    _, xx, dens = mmpy.findPointDensity(zValues, 3.0, 511, [-m - 10, m + 10])
     axm.imshow(dens, extent=(xx[0], xx[-1], xx[0], xx[-1]), origin="lower", cmap=mmpy.gencmap())
     axm.set_aspect("equal"); axm.axis("off")
     def dot_xy(i):
