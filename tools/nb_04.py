@@ -16,17 +16,9 @@ cells.append(md(r"""
 
 In notebook 03 a rat's behavior was its own pose over time. Put **two** animals in an arena and
 "behavior" stops being a property of one body &mdash; it's about the *relationship* between them.
-There's no single right way to measure that; you face a sequence of **choices**, and the answers
-depend on them. We walk those choices on **real Long-Evans dyads** (Klibaite/Berman), following
-Klibaite et al., *Cell* 2025 ("Mapping the landscape of social behavior"):
+There's no single right way to measure that; you face a sequence of choices, and the answers depend on them. We walk those choices on **real Long-Evans dyads**, following Klibaite et al., *Cell* 2025 ("Mapping the landscape of social behavior"):
 
-> the unit of analysis &middot; which social variables &middot; the *joint* behavior map &middot;
-> synchrony &middot; touch &middot; and a control-vs-amphetamine phenotype.
-
-Each session ships the **maps Ugne already computed** &mdash; an individual action space
-(`cz_action`) and a **social/joint space** (`sz_joint`), each with coarse behavior labels &mdash;
-plus both animals' raw 3-D keypoints. So we analyze the real spaces directly (no re-embedding) and
-use the keypoints for the geometric choices.
+Each session ships the maps Ugne already computed &mdash; an individual action space(`cz_action`) and a **social/joint space** (`sz_joint`), each with coarse behavior labels &mdash; plus both animals' raw 3-D keypoints. So we analyze the real spaces directly (no re-embedding) and use the keypoints for the geometric choices.
 
 **Run time:** ~5 min.
 """))
@@ -142,7 +134,10 @@ What makes behavior *social* is the relationship **between** the animals. You co
 inter-animal quantities; the two simplest and most informative (Klibaite 2025, Fig 4B) are the
 **inter-animal distance** and the **relative orientation** &mdash; is one animal facing the other?
 Even defining these takes choices: we use each rat's **body centroid** for position and the
-**spine&rarr;snout** vector for heading.
+**spine&rarr;snout** vector for heading. Ugne's full joint map goes further, adding the 3-D
+*heading-deflection angle* between the animals (how much their facing directions disagree) alongside
+distances between specific body parts &mdash; in effect, which measurements you include *is* your
+definition of "social."
 """))
 cells.append(code(r"""
 def body_center(P): return P.mean(1)                              # centroid of the 23 keypoints
@@ -168,7 +163,12 @@ The key step. Instead of two separate animals, build **one** representation of t
 both animals' posture dynamics **plus** the social variables &mdash; and embed that. Ugne's
 `sz_joint` is exactly this **social/joint map**: each point is a moment of *joint* behavior (mutual
 rearing, inspect-from-behind, chasing, ...). Here it is, with its coarse joint-behavior classes
-(`hljc`) drawn on top.
+(`hljc`) drawn on top. One subtlety does a lot of work: every point is labeled from *one* animal's point
+of view, so the same instant is "chasing" from one rat's side and "being chased" from the other's
+&mdash; the features are computed twice per pair, each animal as the focal one, so the asymmetry of an
+interaction is kept rather than averaged away. The joint map also deliberately uses *fewer* dimensions
+(6 principal components, against 15 for a single animal) and *slower* timescales, since two animals
+share only a handful of stereotyped shapes and coordinate loosely, not frame by frame.
 """))
 cells.append(code(r"""
 Rs = float(np.abs(soc_sz.reshape(-1, 2)).max() + 5)
@@ -193,6 +193,9 @@ pair of behaviors, whether the two animals are in those states *together* more (
 odds ratio**: log&#8322;(how often they're actually in those two states together / how often you'd expect
 by chance). Zero means chance; +1 means twice as often as chance; +2 means four times. So a bright,
 positive **diagonal** means partners tend to do the **same** thing at the same moment, well above chance.
+(Klibaite &amp; Shaevitz quantify this with pointwise *mutual information* &mdash; how much one animal's
+behavior tells you about the other's; the log&#8322;-odds we use here is a simpler, more readable cousin
+that asks the same question.)
 """))
 cells.append(code(r"""
 NI = int(d["n_hlac"])

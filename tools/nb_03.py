@@ -65,8 +65,13 @@ print("keypoint clip:", kp["kp_clip"].shape, "| %d joints @ %d Hz" % (kp["kp_cli
 cells.append(md("## 2.1&nbsp; Look at the raw data first"))
 cells.append(md(r"""
 The front-end for a rat is **3-D keypoints** (here 20 body landmarks tracked with DANNCE), not a
-fly's joint angles &mdash; but everything after that is identical. Here are a few frames of the
-tracked skeleton, and the behavioral map this example session lives on (peaks = common behaviors).
+fly's joint angles &mdash; but everything after that is nearly identical. Two rat-specific choices
+shaped the map you're about to use. First, each animal's keypoints are scaled by its own body size
+(the 97.5th percentile of the snout-to-tailbase distance), so a large rat and a small rat doing the same
+thing land in the same spot rather than two. Second, the pose is made egocentric &mdash; which throws
+away height off the floor &mdash; so height, and each joint's speed, is *added back*, precisely so the
+map can tell a rear from a crouch. Here are a few frames of the tracked skeleton, and the behavioral map
+this example session lives on (peaks = common behaviors).
 """))
 cells.append(code(r"""
 clip, edges = kp["kp_clip"], kp["edges"]
@@ -184,7 +189,14 @@ The fact that *every* rat moves up is exactly what makes a paired test convincin
 
 # ---------------------------------------------------------------- which behaviors
 cells.append(md("# 6.&nbsp; Which behaviors does amphetamine drive?"))
-cells.append(md("Break the change down by coarse behavior class: which does the drug push *up*, and which *down*?"))
+cells.append(md(r"""
+Break the change down by coarse behavior class: which does the drug push *up*, and which *down*? These
+nine coarse classes are a grouping of the 163 fine clusters the watershed actually found, and the names
+&mdash; idle, sniff, groom, rear, ... &mdash; came from people: two annotators independently watched
+skeleton clips from each cluster and described them, reconciling where they disagreed. Coarse is easier
+to read and to do statistics on; the finer view sees structure *within* a behavior, which you can try
+in &sect;7.
+"""))
 cells.append(code(r"""
 occ_base = np.array([occupancy(cclust[1, a]) for a in range(nrat)]).mean(0)   # day3 baseline
 occ_amph = np.array([occupancy(cclust[2, a]) for a in range(nrat)]).mean(0)   # day4 amphetamine
