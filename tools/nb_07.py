@@ -178,7 +178,7 @@ print("map built in %d s" % (time.time() - t0))
 """))
 cells.append(code(r"""
 startsigma = 1.0 if parameters.method == "UMAP" else 4.2
-mmpy.findWatershedRegions(parameters, minimum_regions=12, startsigma=startsigma,
+mmpy.findWatershedRegions(parameters, num_regions=12, startsigma=startsigma,
                           pThreshold=[0.33, 0.67], saveplot=True, endident="*_pcaModes.mat")
 from IPython.display import Image
 Image(glob.glob("%s/%s/zWshed*.png" % (parameters.projectPath, parameters.method))[0])

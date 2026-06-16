@@ -395,12 +395,14 @@ cells.append(md(r"""
 
 The peaks in that density are distinct, stereotyped behaviors; the valleys between them are natural
 borders. A **watershed transform** &mdash; picture flooding the landscape until walls form where the
-pools meet &mdash; turns the smooth map into a labelled patchwork of behavioral regions. The
-`minimum_regions` setting controls how finely we carve.
+pools meet &mdash; turns the smooth map into a labelled patchwork of behavioral regions. We ask for a
+target number of regions with `num_regions` (here 12, to keep the map readable); the function tries
+each amount of smoothing and keeps the one that lands closest. *(Prefer "at least N regions"? Drop
+`num_regions` and pass `minimum_regions=N` instead.)*
 """))
 cells.append(code(r"""
 startsigma = 1.0 if parameters.method == "UMAP" else 4.2
-mmpy.findWatershedRegions(parameters, minimum_regions=12, startsigma=startsigma,
+mmpy.findWatershedRegions(parameters, num_regions=12, startsigma=startsigma,
                           pThreshold=[0.33, 0.67], saveplot=True, endident="*_pcaModes.mat")
 from IPython.display import Image
 Image(glob.glob("%s/%s/zWshed*.png" % (projectPath, parameters.method))[0])
@@ -513,7 +515,7 @@ Pick one or two &mdash; each is a one-line change; rerun from that cell downward
 
 1. **Frequency band (&sect;5):** set `parameters.maxF = 20`. Which behaviors blur together once you
    stop "listening" to the fast leg movements?
-2. **Granularity (&sect;8):** set `minimum_regions = 25`. Do the new regions *subdivide* the old ones,
+2. **Granularity (&sect;8):** set `num_regions = 25`. Do the new regions *subdivide* the old ones,
    or reshuffle them? (A sneak peek at hierarchy &mdash; see notebook 02.)
 3. **Smoothing (&sect;7):** sweep `sigma` over 0.5, 1, 3. What's the "right" number of behaviors?
    (A bit of a trick question &mdash; it depends on what you want to measure.)
