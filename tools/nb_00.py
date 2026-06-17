@@ -51,7 +51,7 @@ cells.append(md(r"""
 cells.append(md(r"""
 # 3.&nbsp; Code test
 
-One real step of the pipeline on fake data. A **wavelet transform** is the engine's core move &mdash;
+Now we will run one real step of the pipeline on fake data. A **wavelet transform** is a core part of the method &mdash;
 it turns a posture time series into a picture of *how fast things are wiggling, at each moment*
 (you'll see why that matters in notebook 01). If the cell below draws a spectrogram and prints a
 check mark, every piece we need is working.
