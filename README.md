@@ -1,20 +1,8 @@
-# Unsupervised Behavioral Analysis — CAJAL 2026
+# Unsupervised Behavioral Analysis Tutorials
 
-Hands-on notebooks for the **Quantitative Approaches to Behaviour & Virtual Reality** course
-(Champalimaud Centre for the Unknown, Lisbon). Workshop afternoon: **17 June 2026, 14:30–19:00**.
+Hands-on notebooks (originally developed for the **Cajal Quantitative Approaches to Behaviour & Virtual Reality** course in Lisbon, Portugal).
 
-**Instructors:** Gordon Berman & Ugne Klibaite
-
-By now in the course you have built rigs, tracked animals (SLEAP), and seen **supervised**
-behavior classification (Kennedy, Branson). These notebooks are the **unsupervised**
-complement: take pose data, discover the behavioral repertoire *with no labels*, and then
-actually *do science* with it — compare groups, quantify dynamics, map social interaction,
-read out neural perturbations, and uncover slow internal states.
-
-## How the afternoon works
-
-We go through the core sequence **together**, with a short lecture before each notebook. Each one is
-standalone and loads its own data, so you can keep up even if a previous step didn't finish.
+The first notebook is provides a framework for the otherones.  I would recommend going through the first 4 notebooks, and then the other ones are more optional, depending on your interests. That said, each notebook is standalone and loads its own data.
 
 | # | Notebook | Question it answers |
 |---|---|---|
@@ -23,36 +11,13 @@ standalone and loads its own data, so you can keep up even if a previous step di
 | 3 | [`03_rat_individual_behavior.ipynb`](03_rat_individual_behavior.ipynb) | How does amphetamine reshape a rat's repertoire? |
 | 4 | [`04_rat_social_behavior.ipynb`](04_rat_social_behavior.ipynb) | How do you quantify what two animals do *together*? |
 | 5 | [`05_slow_modes.ipynb`](05_slow_modes.ipynb) | What slow internal states bias the fast actions? |
-
-At the end of the session (or in your own time) there are two **optional** notebooks:
-
-| Notebook | Question it answers |
-|---|---|
-| [`06_optogenetics.ipynb`](06_optogenetics.ipynb) | Which behaviors does activating a neuron trigger? |
-| [`07_bring_your_own_data.ipynb`](07_bring_your_own_data.ipynb) | Does this work on *my* data? |
+| 6 | [`06_optogenetics.ipynb`](06_optogenetics.ipynb) | Which behaviors does activating a neuron trigger? |
+| 7 | [`07_bring_your_own_data.ipynb`](07_bring_your_own_data.ipynb) | Does this work on *my* data? |
 
 Every notebook mixes **▶︎ "just run it"** cells with **🔧 "your turn"** cells, so it works whether
 this is your first Python or your hundredth.
 
-### Plan for the afternoon (~4.5 h)
-
-Roughly: **notebook 01 together (~40 min)**, a short break, then **one or two Act-2 tracks together
-(~40 min each)** with discussion, leaving room for questions and for you to wander off-script. The
-per-notebook time estimates are compute-only — live, with exploration and the inevitable Colab
-hiccup, budget more.
-
-- **Everyone:** `01` — the engine everything else is built on.
-- **Live, together:** we'll choose from `02`–`04` depending on the room (behavioral dynamics, then
-  rodent pharmacology and social behavior).
-- **Teasers & take-home:** `05` (slow modes) is a running start for Greg Stephens' talk the next day;
-  `06` (optogenetics) and `07` (bring-your-own) are natural fits for the Week-3 project phase. All
-  three are standalone, so you can run them whenever you like.
-
-Not sure which track? Pick by what you work on: **pharmacology or rodent behavior** → `03`/`04`;
-**dynamics and internal states** → `02`/`05`; **circuit perturbations** → `06`; **your own animal** →
-`07`.
-
-## Before the session
+## Before starting
 Open [`00_colab_check.ipynb`](00_colab_check.ipynb) in Colab and run it top-to-bottom (~2 min)
 to confirm your runtime works. Do this the night before — it means minute 1 of the workshop
 isn't spent debugging environments.
@@ -85,13 +50,3 @@ See [`data/README.md`](data/README.md); real data is regenerated from source by 
 | 05 slow modes | ships inside the slowmode repo (cached `.npz`/`.pkl`) | ✅ |
 | 06 optogenetics | `data/optogenetic_data/` (7 Cande 2018 driver lines) | ✅ in repo |
 | 07 bring-your-own | you provide it | — |
-
-## Regenerating the notebooks
-These `.ipynb` files are generated from plain-Python builders so they're easy to mass-edit:
-
-```bash
-python tools/build_all.py     # rebuilds all notebooks
-python tools/nb_01.py         # or rebuild just one
-```
-
-Edit the prose/code in `tools/nb_*.py`, rerun, commit the regenerated `.ipynb`.
